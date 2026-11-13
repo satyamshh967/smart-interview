@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   FileText, 
   Code2, 
@@ -23,9 +23,29 @@ import { evaluateCodeSubmission } from '../services/api';
 interface InterviewRoomProps {
   interview: InterviewSession | null;
   problems: Problem[];
-  onStartNewSession: (difficulty: string, track: string) => void;
+  onStartNewSession: (track: string, difficulty: string) => void;
   onFinishInterview: (transcript: string, timeTakenSec: number) => void;
   isStarting: boolean;
+  isFinishing?: boolean;
+  candidateName?: string;
+}
+
+type ProblemStatus = { passed: number; total: number; accepted: boolean };
+
+const draftKey = (interviewId: string) => `interview-draft:${interviewId}`;
+
+function loadDraft(interviewId?: string): { codeMap: Record<string, string>; language: string } {
+  if (!interviewId) return { codeMap: {}, language: 'python' };
+  try {
+    const raw = localStorage.getItem(draftKey(interviewId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { codeMap: parsed.codeMap || {}, language: parsed.language || 'python' };
+    }
+  } catch {
+    /* storage unavailable or corrupt: start fresh */
+  }
+  return { codeMap: {}, language: 'python' };
 }
 
 export const InterviewRoom: React.FC<InterviewRoomProps> = ({
@@ -33,16 +53,48 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   problems,
   onStartNewSession,
   onFinishInterview,
-  isStarting
+  isStarting,
+  isFinishing = false,
+  candidateName
 }) => {
   const [activeProblemIndex, setActiveProblemIndex] = useState(0);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
-  const [codeMap, setCodeMap] = useState<{ [problemId: string]: string }>({});
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => loadDraft(interview?.id).language);
+  // Code drafts keyed by "problemId:language" so switching problems/languages never loses work
+  const [codeMap, setCodeMap] = useState<Record<string, string>>(() => loadDraft(interview?.id).codeMap);
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
-  const [transcript, setTranscript] = useState<string>('');
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [problemStatus, setProblemStatus] = useState<Record<string, ProblemStatus>>({});
   const [showFinishConfirm, setShowFinishConfirm] = useState<boolean>(false);
+
+  // Refs so the timer-expiry callback always sees the latest values
+  const transcriptRef = useRef<string>('');
+  const elapsedRef = useRef<number>(0);
+  const finishedRef = useRef<boolean>(false);
+
+  // Autosave drafts per interview
+  useEffect(() => {
+    if (!interview?.id) return;
+    try {
+      localStorage.setItem(draftKey(interview.id), JSON.stringify({ codeMap, language: selectedLanguage }));
+    } catch {
+      /* ignore quota / private mode errors */
+    }
+  }, [codeMap, selectedLanguage, interview?.id]);
+
+  const finish = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    setShowFinishConfirm(false);
+    onFinishInterview(transcriptRef.current, elapsedRef.current);
+  };
+
+  // If finishing failed (still mounted, no longer finishing), allow another attempt
+  const wasFinishingRef = useRef(false);
+  useEffect(() => {
+    if (wasFinishingRef.current && !isFinishing) finishedRef.current = false;
+    wasFinishingRef.current = isFinishing;
+  }, [isFinishing]);
 
   // Setup form states for starting new interview
   const [newDifficulty, setNewDifficulty] = useState<string>('Medium');
@@ -128,7 +180,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           </div>
 
           <button
-            onClick={() => onStartNewSession(newDifficulty, newTrack)}
+            onClick={() => onStartNewSession(newTrack, newDifficulty)}
             disabled={isStarting}
             className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-teal-600 via-teal-500 to-teal-600 hover:from-teal-500 hover:to-teal-400 shadow-xl shadow-teal-500/25 transition-all active:scale-[0.99] disabled:opacity-50"
           >
@@ -141,28 +193,33 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
 
   const currentProblem = problems[activeProblemIndex] || problems[0];
 
-  // Get active code
-  const currentCode = codeMap[currentProblem.id] ||
-    (currentProblem.starterCode[selectedLanguage as keyof typeof currentProblem.starterCode] || '');
+  const starterFor = (lang: string) =>
+    currentProblem.starterCode[lang as keyof typeof currentProblem.starterCode] || '';
+  const codeKey = `${currentProblem.id}:${selectedLanguage}`;
+
+  // Get active code (draft if present, else starter template)
+  const currentCode = codeMap[codeKey] ?? starterFor(selectedLanguage);
 
   const handleCodeChange = (newCode: string) => {
-    setCodeMap((prev) => ({ ...prev, [currentProblem.id]: newCode }));
+    setCodeMap((prev) => ({ ...prev, [codeKey]: newCode }));
   };
 
   const handleLanguageChange = (newLang: string) => {
     setSelectedLanguage(newLang);
-    const starter = currentProblem.starterCode[newLang as keyof typeof currentProblem.starterCode] || '';
-    setCodeMap((prev) => ({ ...prev, [currentProblem.id]: starter }));
   };
 
   const handleResetCode = () => {
-    const starter = currentProblem.starterCode[selectedLanguage as keyof typeof currentProblem.starterCode] || '';
-    setCodeMap((prev) => ({ ...prev, [currentProblem.id]: starter }));
+    setCodeMap((prev) => {
+      const next = { ...prev };
+      delete next[codeKey];
+      return next;
+    });
   };
 
   const handleRunSampleTests = async (codeToRun: string, lang: string) => {
     setIsEvaluating(true);
     setEvalResult(null);
+    setEvalError(null);
     try {
       const res = await evaluateCodeSubmission({
         interviewId: interview.id,
@@ -173,7 +230,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
       });
       setEvalResult(res.evaluation);
     } catch (err: any) {
-      console.error('Run failed:', err);
+      setEvalError(err?.message || 'Failed to run sample tests');
     } finally {
       setIsEvaluating(false);
     }
@@ -182,6 +239,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   const handleSubmitFullSolution = async (codeToRun: string, lang: string) => {
     setIsEvaluating(true);
     setEvalResult(null);
+    setEvalError(null);
     try {
       const res = await evaluateCodeSubmission({
         interviewId: interview.id,
@@ -191,8 +249,22 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         isSampleOnly: false
       });
       setEvalResult(res.evaluation);
+      const ev = res.evaluation;
+      setProblemStatus((prev) => {
+        const existing = prev[currentProblem.id];
+        // Keep the best submission per problem
+        if (existing && existing.passed >= ev.passedTestCases) return prev;
+        return {
+          ...prev,
+          [currentProblem.id]: {
+            passed: ev.passedTestCases,
+            total: ev.totalTestCases,
+            accepted: ev.status === 'ACCEPTED'
+          }
+        };
+      });
     } catch (err: any) {
-      console.error('Submit failed:', err);
+      setEvalError(err?.message || 'Failed to submit solution');
     } finally {
       setIsEvaluating(false);
     }
@@ -223,13 +295,24 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
                 onClick={() => {
                   setActiveProblemIndex(idx);
                   setEvalResult(null);
+                  setEvalError(null);
                 }}
+                title={problemStatus[p.id]
+                  ? `Best submission: ${problemStatus[p.id].passed}/${problemStatus[p.id].total} tests`
+                  : 'Not submitted yet'}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                   activeProblemIndex === idx
                     ? 'bg-teal-600 text-white shadow-sm shadow-teal-500/30'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                 }`}
               >
+                {problemStatus[p.id]?.accepted ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                ) : problemStatus[p.id] ? (
+                  <span className="text-[10px] font-mono text-amber-300">
+                    {problemStatus[p.id].passed}/{problemStatus[p.id].total}
+                  </span>
+                ) : null}
                 <span>Q{idx + 1}: {p.title}</span>
               </button>
             ))}
@@ -240,15 +323,16 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         <div className="flex items-center gap-3">
           <Timer
             initialMinutes={interview.timeLimitMinutes || 35}
-            onSecondsUpdated={(sec) => setElapsedSeconds(sec)}
-            onTimeExpired={() => onFinishInterview(transcript, elapsedSeconds)}
+            onSecondsUpdated={(sec) => { elapsedRef.current = sec; }}
+            onTimeExpired={finish}
           />
 
           <button
             onClick={() => setShowFinishConfirm(true)}
+            disabled={isFinishing}
             className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 active:scale-95 transition-all"
           >
-            End Interview
+            {isFinishing ? 'Scoring...' : 'End Interview'}
           </button>
         </div>
       </div>
@@ -333,6 +417,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
               onRunSample={handleRunSampleTests}
               onSubmitFull={handleSubmitFullSolution}
               onReset={handleResetCode}
+              onCodeChange={handleCodeChange}
               isEvaluating={isEvaluating}
               statusBadge={evalResult?.status}
             />
@@ -342,6 +427,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             <ConsoleOutput
               result={evalResult}
               isEvaluating={isEvaluating}
+              error={evalError}
             />
           </div>
         </div>
@@ -350,9 +436,10 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         <div className="lg:col-span-3 h-[calc(100vh-170px)] overflow-y-auto">
           <VideoRecorder
             interviewId={interview.id}
+            candidateName={candidateName || interview.candidateName}
             problemId={currentProblem.id}
             code={currentCode}
-            onTranscriptChange={(t) => setTranscript(t)}
+            onTranscriptChange={(t) => { transcriptRef.current = t; }}
           />
         </div>
       </div>
@@ -365,6 +452,12 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             <p className="text-xs text-slate-300 leading-relaxed">
               Submitting now will finalize all code solutions, evaluate hidden edge cases with the C++ engine, and generate your comprehensive NLP communication scorecard.
             </p>
+            {problems.some((p) => !problemStatus[p.id]) && (
+              <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                No full submission yet for: {problems.filter((p) => !problemStatus[p.id]).map((p) => p.title).join(', ')}.
+                Unsubmitted problems score zero for correctness.
+              </p>
+            )}
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 onClick={() => setShowFinishConfirm(false)}
@@ -373,10 +466,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
                 Continue Interview
               </button>
               <button
-                onClick={() => {
-                  setShowFinishConfirm(false);
-                  onFinishInterview(transcript, elapsedSeconds);
-                }}
+                onClick={finish}
                 className="px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-500 rounded-xl shadow-lg shadow-teal-500/20 transition-all"
               >
                 Submit & View Scorecard

@@ -6,6 +6,14 @@ export interface Candidate {
   targetTrack: string;
   experienceLevel: string;
   avatar: string;
+  createdAt?: string;
+  stats?: {
+    interviewCount: number;
+    completedCount: number;
+    latestScore: number | null;
+    latestInterviewId: string | null;
+    bestScore: number | null;
+  };
 }
 
 export interface TestCase {
@@ -36,6 +44,7 @@ export interface Problem {
     c?: string;
   };
   sampleTestCases: TestCase[];
+  hiddenTestCaseCount?: number;
 }
 
 export interface TestCaseResult {
@@ -99,6 +108,16 @@ export interface Competencies {
   speedAndTime: number;
 }
 
+export interface ProblemBreakdown {
+  problemId: string;
+  title: string;
+  attempts: number;
+  passed: number;
+  total: number;
+  language: string | null;
+  status: string;
+}
+
 export interface ScoreRecord {
   id: string;
   interviewId: string;
@@ -108,8 +127,10 @@ export interface ScoreRecord {
   codeEfficiencyScore: number;
   communicationScore: number;
   timeManagementScore: number;
+  timeTakenSeconds?: number;
   totalTestCases: number;
   passedTestCases: number;
+  problemBreakdown?: ProblemBreakdown[];
   strengths: string[];
   improvements: string[];
   nlpDetails?: NLPFeedback;
@@ -148,4 +169,13 @@ export interface InterviewHistoryItem {
   score?: ScoreRecord;
   submissionsCount: number;
   recordingUrl?: string;
+}
+
+export interface HistoryAnalytics {
+  totalInterviews: number;
+  completedCount: number;
+  avgOverallScore: number;
+  avgCodeCorrectness: number;
+  avgCommunication: number;
+  avgCompetencies: Competencies;
 }

@@ -5,9 +5,13 @@ export interface CandidateItem {
   id: string;
   name: string;
   role: string;
-  status: 'Approved' | 'Rejected';
+  status: 'Approved' | 'Rejected' | 'Pending';
   score: number;
   avatar: string;
+  /** Most recent scored interview from the backend, if any */
+  latestInterviewId?: string | null;
+  /** True for built-in demo profiles that are not stored in the backend */
+  isSample?: boolean;
 }
 
 interface CandidateListCardProps {

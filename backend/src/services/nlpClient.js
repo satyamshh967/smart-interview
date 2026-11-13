@@ -3,6 +3,7 @@ const NLP_URL = process.env.NLP_URL || 'http://localhost:8081';
 export async function evaluateCommunication({ transcript, problemContext = '', code = '', timeTakenSeconds = 0 }) {
   try {
     const response = await fetch(`${NLP_URL}/nlp/evaluate`, {
+      signal: AbortSignal.timeout(10000),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -41,7 +42,7 @@ export async function evaluateCommunication({ transcript, problemContext = '', c
 
 export async function checkNlpHealth() {
   try {
-    const response = await fetch(`${NLP_URL}/health`);
+    const response = await fetch(`${NLP_URL}/health`, { signal: AbortSignal.timeout(2000) });
     if (response.ok) {
       return await response.json();
     }

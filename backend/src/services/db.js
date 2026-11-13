@@ -81,12 +81,15 @@ class Database {
 
   save() {
     try {
-      fs.writeFileSync(STORE_PATH, JSON.stringify({
+      // Write to a temp file then rename so a crash mid-write can't corrupt the store.
+      const tmpPath = `${STORE_PATH}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify({
         candidates: this.store.candidates,
         interviews: this.store.interviews,
         submissions: this.store.submissions,
         scores: this.store.scores
       }, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, STORE_PATH);
     } catch (e) {
       console.error('Failed to write store.json:', e);
     }

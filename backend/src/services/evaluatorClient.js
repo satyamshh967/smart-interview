@@ -3,6 +3,7 @@ const EVALUATOR_URL = process.env.EVALUATOR_URL || 'http://localhost:8082';
 export async function evaluateCode({ language, code, testCases, timeLimitMs = 3000 }) {
   try {
     const response = await fetch(`${EVALUATOR_URL}/evaluate`, {
+      signal: AbortSignal.timeout(Math.max(10000, timeLimitMs * ((testCases?.length || 1) + 2))),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -47,7 +48,7 @@ export async function evaluateCode({ language, code, testCases, timeLimitMs = 30
 
 export async function checkEvaluatorHealth() {
   try {
-    const response = await fetch(`${EVALUATOR_URL}/health`);
+    const response = await fetch(`${EVALUATOR_URL}/health`, { signal: AbortSignal.timeout(2000) });
     if (response.ok) {
       return await response.json();
     }

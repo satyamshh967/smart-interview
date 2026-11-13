@@ -58,6 +58,10 @@ flowchart TB
   4. Verbal Articulation
   5. Speed & Pacing
 - **Interview Recording & Replay**: WebRTC video/audio stream capture and archived session replay for placement cells.
+- **Live Speech-to-Text Dictation**: Dictate your solution walkthrough via the browser Web Speech API (Chrome/Edge); the transcript feeds the NLP scorer.
+- **Draft Autosave & Editor Ergonomics**: Code is saved per problem and language (survives tab switches and reloads); auto-indent, Shift+Tab dedent, Ctrl+Enter to run samples, Ctrl+Shift+Enter to submit.
+- **Real Scorecards End-to-End**: Finishing an interview computes the composite score on the backend; History, Recruiter and Candidate views open the stored scorecard, including a per-problem breakdown.
+- **Hidden Test Integrity**: Hidden test inputs/outputs are never sent to the client — only pass/fail and timing are returned.
 - **Progress Tracking & Cohort Leaderboard**: Historical timeline tracking score progression over time, plus an institutional dashboard for Training Institutes and Placement Cells.
 
 ---
@@ -88,6 +92,9 @@ Interactive Swagger UI is available at `http://localhost:5000/api/docs`.
 | `POST` | `/api/interview/communication-feedback` | Dispatches explanation transcript to Python NLP engine for real-time scoring. |
 | `POST` | `/api/interview/finish` | Concludes interview, compiles multi-language evaluation, and saves scorecard. |
 | `GET` | `/api/results/history` | Returns historical interview sessions, candidate analytics, and radar stats. |
+| `GET` | `/api/results/:interviewId` | Returns the full scorecard, submissions and problems for one interview. |
+| `GET` | `/api/candidates?withStats=true` | Lists candidates with interview counts and latest/best scores. |
+| `POST` | `/api/candidates` | Registers a candidate (validated, unique email). |
 | `GET` | `/api/questions` | Lists all questions in problem library with starter code and sample cases. |
 | `GET` | `/api/health` | Health check reporting status across Node, C++, and Python services. |
 

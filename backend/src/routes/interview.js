@@ -2,8 +2,37 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../services/db.js';
 import { evaluateCommunication } from '../services/nlpClient.js';
+import { sanitizeProblem } from '../services/sanitize.js';
 
 const router = express.Router();
+
+const DIFFICULTY_RANK = { Easy: 0, Medium: 1, Hard: 2 };
+
+function shuffle(arr) {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * Prefer problems at the requested difficulty (shuffled for variety), then fill
+ * remaining slots with the closest other difficulties. Result is ordered easy → hard.
+ */
+function selectProblems(allProblems, difficulty, count) {
+  const target = DIFFICULTY_RANK[difficulty] ?? 1;
+  const rankOf = p => DIFFICULTY_RANK[p.difficulty] ?? 1;
+  const matching = shuffle(allProblems.filter(p => p.difficulty === difficulty));
+  const others = shuffle(allProblems.filter(p => p.difficulty !== difficulty))
+    .sort((a, b) => Math.abs(rankOf(a) - target) - Math.abs(rankOf(b) - target));
+  return [...matching, ...others]
+    .slice(0, count)
+    .sort((a, b) => rankOf(a) - rankOf(b));
+}
+
+const testCount = prob => (prob.sampleTestCases || []).length + (prob.hiddenTestCases || []).length;
 
 /**
  * POST /api/interview/start
@@ -13,22 +42,23 @@ router.post('/start', (req, res) => {
   try {
     const {
       candidateId = 'cand-101',
-      title = 'Technical Software Engineering Interview',
+      title,
       difficulty = 'Medium',
       track = 'Fullstack / DSA',
       problemCount = 2
-    } = req.body;
+    } = req.body || {};
 
     const candidate = db.getCandidateById(candidateId) || db.getCandidates()[0];
-    const allProblems = db.getProblems();
-
-    // Select problems based on difficulty or pick first few
-    let selectedProblems = allProblems.filter(p => p.difficulty === difficulty);
-    if (selectedProblems.length < problemCount) {
-      selectedProblems = allProblems.slice(0, problemCount);
-    } else {
-      selectedProblems = selectedProblems.slice(0, problemCount);
+    if (!candidate) {
+      return res.status(400).json({ error: 'No candidates available to start an interview' });
     }
+
+    const allProblems = db.getProblems();
+    if (allProblems.length === 0) {
+      return res.status(503).json({ error: 'Question bank is empty' });
+    }
+    const count = Math.min(Math.max(parseInt(problemCount, 10) || 2, 1), allProblems.length);
+    const selectedProblems = selectProblems(allProblems, difficulty, count);
 
     const totalTimeMinutes = selectedProblems.reduce((sum, p) => sum + (p.timeLimitMinutes || 20), 0);
 
@@ -36,7 +66,7 @@ router.post('/start', (req, res) => {
       id: `int-${uuidv4().slice(0, 8)}`,
       candidateId: candidate.id,
       candidateName: candidate.name,
-      title,
+      title: title || `${track} Interview`,
       difficulty,
       track,
       timeLimitMinutes: totalTimeMinutes,
@@ -50,24 +80,9 @@ router.post('/start', (req, res) => {
 
     db.createInterview(interview);
 
-    // Return interview with problem statements (without hidden test cases)
-    const sanitizedProblems = selectedProblems.map(p => ({
-      id: p.id,
-      title: p.title,
-      slug: p.slug,
-      difficulty: p.difficulty,
-      category: p.category,
-      timeLimitMinutes: p.timeLimitMinutes,
-      description: p.description,
-      examples: p.examples,
-      constraints: p.constraints,
-      starterCode: p.starterCode,
-      sampleTestCases: p.sampleTestCases
-    }));
-
     return res.status(201).json({
       interview,
-      problems: sanitizedProblems,
+      problems: selectedProblems.map(sanitizeProblem),
       candidate
     });
   } catch (error) {
@@ -78,7 +93,7 @@ router.post('/start', (req, res) => {
 
 /**
  * GET /api/interview/:id
- * Fetch active interview session state
+ * Fetch active interview session state (hidden test cases are never exposed).
  */
 router.get('/:id', (req, res) => {
   const interview = db.getInterviewById(req.params.id);
@@ -86,7 +101,7 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ error: 'Interview session not found' });
   }
 
-  const problems = db.getProblems().filter(p => interview.problemIds.includes(p.id));
+  const problems = db.getProblems().filter(p => interview.problemIds.includes(p.id)).map(sanitizeProblem);
   const submissions = db.getSubmissions({ interviewId: interview.id });
   const score = db.getScores({ interviewId: interview.id })[0] || null;
 
@@ -104,9 +119,9 @@ router.get('/:id', (req, res) => {
  */
 router.post('/communication-feedback', async (req, res) => {
   try {
-    const { interviewId, transcript, problemId, code, timeTakenSeconds } = req.body;
+    const { interviewId, transcript, problemId, code, timeTakenSeconds } = req.body || {};
 
-    if (!transcript) {
+    if (typeof transcript !== 'string' || !transcript.trim()) {
       return res.status(400).json({ error: 'Transcript is required for communication feedback' });
     }
 
@@ -123,7 +138,7 @@ router.post('/communication-feedback', async (req, res) => {
       timeTakenSeconds: timeTakenSeconds || 0
     });
 
-    if (interviewId) {
+    if (interviewId && db.getInterviewById(interviewId)) {
       db.updateInterview(interviewId, {
         communicationTranscript: transcript
       });
@@ -146,14 +161,19 @@ router.post('/finish', async (req, res) => {
       interviewId,
       recordingUrl,
       communicationTranscript = '',
-      timeTakenSeconds = 0
-    } = req.body;
+      timeTakenSeconds: rawTimeTaken = 0
+    } = req.body || {};
+
+    if (!interviewId) {
+      return res.status(400).json({ error: 'interviewId is required' });
+    }
 
     const interview = db.getInterviewById(interviewId);
     if (!interview) {
       return res.status(404).json({ error: 'Interview session not found' });
     }
 
+    const timeTakenSeconds = Math.max(0, Number(rawTimeTaken) || 0);
     const completedAt = new Date().toISOString();
     db.updateInterview(interviewId, {
       status: 'completed',
@@ -166,29 +186,58 @@ router.post('/finish', async (req, res) => {
     const submissions = db.getSubmissions({ interviewId });
     const problems = db.getProblems().filter(p => interview.problemIds.includes(p.id));
 
-    // Calculate Code Correctness Score
+    // Calculate Code Correctness Score from the best submission per problem
     let totalPossibleTests = 0;
     let totalPassedTests = 0;
-    let avgRuntimeMs = 0;
+    let totalRuntimeMs = 0;
+    let solvedProblemCount = 0;
+    const problemBreakdown = [];
 
     for (const prob of problems) {
       const probSubmissions = submissions.filter(s => s.problemId === prob.id);
       if (probSubmissions.length > 0) {
-        // take best submission
-        const best = probSubmissions.sort((a, b) => (b.testCasesPassed || 0) - (a.testCasesPassed || 0))[0];
+        // most tests passed first, then fastest
+        const best = [...probSubmissions].sort((a, b) =>
+          ((b.testCasesPassed || 0) - (a.testCasesPassed || 0)) ||
+          ((a.executionTimeMs || 0) - (b.executionTimeMs || 0))
+        )[0];
+        const total = best.testCasesTotal || testCount(prob);
         totalPassedTests += best.testCasesPassed || 0;
-        totalPossibleTests += best.testCasesTotal || (prob.sampleTestCases.length + prob.hiddenTestCases.length);
-        avgRuntimeMs += best.executionTimeMs || 0;
+        totalPossibleTests += total;
+        if ((best.testCasesPassed || 0) > 0) {
+          totalRuntimeMs += best.executionTimeMs || 0;
+          solvedProblemCount += 1;
+        }
+        problemBreakdown.push({
+          problemId: prob.id,
+          title: prob.title,
+          attempts: probSubmissions.length,
+          passed: best.testCasesPassed || 0,
+          total,
+          language: best.language,
+          status: best.status
+        });
       } else {
-        totalPossibleTests += (prob.sampleTestCases.length + prob.hiddenTestCases.length);
+        totalPossibleTests += testCount(prob);
+        problemBreakdown.push({
+          problemId: prob.id,
+          title: prob.title,
+          attempts: 0,
+          passed: 0,
+          total: testCount(prob),
+          language: null,
+          status: 'NOT_ATTEMPTED'
+        });
       }
     }
+
+    const avgRuntimeMs = solvedProblemCount > 0 ? totalRuntimeMs / solvedProblemCount : 0;
 
     const codeCorrectnessScore = totalPossibleTests > 0
       ? Math.round((totalPassedTests / totalPossibleTests) * 100)
       : 0;
 
-    // Code Efficiency Score (penalize runtime > 200ms)
+    // Code Efficiency Score (penalize slow average runtime of solved problems)
     let codeEfficiencyScore = 90;
     if (avgRuntimeMs > 300) codeEfficiencyScore = 70;
     else if (avgRuntimeMs > 100) codeEfficiencyScore = 82;
@@ -203,16 +252,25 @@ router.post('/finish', async (req, res) => {
       else if (usageRatio <= 1.0) timeManagementScore = 85;
       else timeManagementScore = Math.max(40, 85 - Math.round((usageRatio - 1.0) * 100));
     }
+    // Finishing quickly without solving anything is not good time management.
+    if (totalPassedTests === 0) timeManagementScore = Math.min(timeManagementScore, 50);
 
     // Call Python NLP Feedback Engine for communication scoring
     const fullTranscript = communicationTranscript || interview.communicationTranscript || '';
-    const nlpFeedback = await evaluateCommunication({
-      transcript: fullTranscript,
-      problemContext: problems.map(p => p.title).join(', '),
-      timeTakenSeconds
-    });
+    const nlpFeedback = fullTranscript.trim()
+      ? await evaluateCommunication({
+          transcript: fullTranscript,
+          problemContext: problems.map(p => p.title).join(', '),
+          timeTakenSeconds
+        })
+      : {
+          overallScore: 30,
+          strengths: [],
+          improvements: ['No verbal explanation was captured. Walk through your approach, complexity and edge cases out loud.'],
+          summary: 'No transcript was captured for this interview.'
+        };
 
-    const communicationScore = nlpFeedback.overallScore || 70;
+    const communicationScore = Number.isFinite(nlpFeedback.overallScore) ? nlpFeedback.overallScore : 60;
 
     // Weighted Overall Score:
     // 45% Code Correctness, 20% Code Efficiency, 20% Verbal Communication, 15% Time Management
@@ -224,8 +282,8 @@ router.post('/finish', async (req, res) => {
     );
 
     // Merge strengths & improvements
-    const strengths = [...nlpFeedback.strengths];
-    const improvements = [...nlpFeedback.improvements];
+    const strengths = [...(nlpFeedback.strengths || [])];
+    const improvements = [...(nlpFeedback.improvements || [])];
 
     if (codeCorrectnessScore >= 90) {
       strengths.unshift('Flawless test case suite execution; passed edge cases and hidden test suites.');
@@ -234,6 +292,10 @@ router.post('/finish', async (req, res) => {
       improvements.unshift('Address hidden edge cases and boundary conditions in test submissions.');
     } else {
       improvements.unshift('Focus on baseline algorithmic correctness and syntax validation before submission.');
+    }
+    const unattempted = problemBreakdown.filter(p => p.attempts === 0);
+    if (unattempted.length > 0) {
+      improvements.push(`No submission recorded for: ${unattempted.map(p => p.title).join(', ')}.`);
     }
 
     const scoreRecord = {
@@ -245,8 +307,10 @@ router.post('/finish', async (req, res) => {
       codeEfficiencyScore,
       communicationScore,
       timeManagementScore,
+      timeTakenSeconds,
       totalTestCases: totalPossibleTests,
       passedTestCases: totalPassedTests,
+      problemBreakdown,
       strengths,
       improvements,
       nlpDetails: nlpFeedback,

@@ -21,13 +21,16 @@ interface AnalyticsDashboardProps {
   interview: InterviewSession | null;
   onRetake: () => void;
   onViewHistory: () => void;
+  /** Demo scorecard not backed by a real interview */
+  isSample?: boolean;
 }
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   score,
   interview,
   onRetake,
-  onViewHistory
+  onViewHistory,
+  isSample = false
 }) => {
   if (!score) {
     return (
@@ -101,6 +104,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {isSample && (
+        <div className="flex items-start gap-2 px-4 py-3 rounded-2xl border text-xs bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/20">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            This is an illustrative scorecard for a demo profile. Complete an interview in the Interview Room to generate a real, engine-evaluated report.
+          </span>
+        </div>
+      )}
 
       {/* Main Score & Top Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
@@ -299,6 +311,41 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               ))}
             </div>
           </div>
+
+          {/* Per-problem results */}
+          {score.problemBreakdown && score.problemBreakdown.length > 0 && (
+            <div className="pt-2">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
+                Problem-by-Problem Results
+                {typeof score.timeTakenSeconds === 'number' && score.timeTakenSeconds > 0 && (
+                  <span className="normal-case font-mono font-medium ml-2 text-slate-400">
+                    &middot; {Math.floor(score.timeTakenSeconds / 60)}m {score.timeTakenSeconds % 60}s total
+                  </span>
+                )}
+              </span>
+              <div className="space-y-1.5">
+                {score.problemBreakdown.map((p) => {
+                  const pct = p.total > 0 ? Math.round((p.passed / p.total) * 100) : 0;
+                  return (
+                    <div key={p.problemId} className="p-3 rounded-2xl border border-slate-200 dark:border-white/5 bg-slate-50/60 dark:bg-slate-900/40 text-xs">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{p.title}</span>
+                        <span className="font-mono text-slate-500 dark:text-slate-400">
+                          {p.attempts === 0 ? 'Not attempted' : `${p.passed}/${p.total} tests · ${p.attempts} attempt${p.attempts === 1 ? '' : 's'}${p.language ? ` · ${p.language}` : ''}`}
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${pct === 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Linguistic Keyword Coverage */}
           {nlpDetails && nlpDetails.detectedKeywords && nlpDetails.detectedKeywords.length > 0 && (

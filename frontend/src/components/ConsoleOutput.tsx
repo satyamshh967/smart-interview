@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -13,13 +13,20 @@ import { EvaluationResult } from '../types';
 interface ConsoleOutputProps {
   result: EvaluationResult | null;
   isEvaluating: boolean;
+  error?: string | null;
 }
 
 export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
   result,
-  isEvaluating
+  isEvaluating,
+  error
 }) => {
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
+
+  // Reset the selected test case whenever a new result arrives
+  useEffect(() => {
+    setActiveCaseIndex(0);
+  }, [result]);
 
   if (isEvaluating) {
     return (
@@ -27,6 +34,16 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
         <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mb-3" />
         <p className="text-xs font-medium text-slate-300">Evaluating in C++ Sandboxed Environment...</p>
         <p className="text-[11px] text-slate-500 mt-1">Executing test suite with strict time and memory monitoring</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-48 flex flex-col items-center justify-center bg-[#0D121F] rounded-2xl border border-rose-500/20 p-6 text-center">
+        <AlertCircle className="w-6 h-6 mb-2 text-rose-400" />
+        <p className="text-xs font-semibold text-rose-300">Evaluation request failed</p>
+        <p className="text-[11px] text-slate-400 mt-1 max-w-md">{error}</p>
       </div>
     );
   }

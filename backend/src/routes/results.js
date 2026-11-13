@@ -1,5 +1,6 @@
 import express from 'express';
 import { db } from '../services/db.js';
+import { sanitizeProblem } from '../services/sanitize.js';
 
 const router = express.Router();
 
@@ -103,7 +104,7 @@ router.get('/:interviewId', (req, res) => {
 
   const score = db.getScores({ interviewId })[0] || null;
   const submissions = db.getSubmissions({ interviewId });
-  const problems = db.getProblems().filter(p => interview.problemIds.includes(p.id));
+  const problems = db.getProblems().filter(p => interview.problemIds.includes(p.id)).map(sanitizeProblem);
   const candidate = db.getCandidateById(interview.candidateId);
 
   return res.json({

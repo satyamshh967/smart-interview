@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { CandidateListCard, CandidateItem } from './components/CandidateListCard';
@@ -18,8 +19,72 @@ import { InterviewRoom } from './components/InterviewRoom';
 import { TakeInterviewBanner } from './components/TakeInterviewBanner';
 import { TakeInterviewModal } from './components/TakeInterviewModal';
 import { ThemeSelectorModal, ThemeMode, AccentColor } from './components/ThemeSelectorModal';
-import { Problem, InterviewSession, ScoreRecord } from './types';
-import { fetchQuestions, fetchCandidates, startInterviewSession } from './services/api';
+import { Problem, InterviewSession, ScoreRecord, Candidate } from './types';
+import {
+  fetchQuestions,
+  fetchCandidates,
+  startInterviewSession,
+  finishInterviewSession,
+  fetchInterviewResult
+} from './services/api';
+
+const safeStorageGet = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const safeStorageSet = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+const statusFromScore = (score: number | null | undefined): CandidateItem['status'] =>
+  score == null ? 'Pending' : score >= 70 ? 'Approved' : 'Rejected';
+
+/** Converts a backend candidate (with stats) into the list-card shape. */
+const toCandidateItem = (c: Candidate): CandidateItem => ({
+  id: c.id,
+  name: c.name,
+  role: c.role,
+  avatar: c.avatar,
+  score: c.stats?.latestScore ?? 0,
+  status: statusFromScore(c.stats?.latestScore),
+  latestInterviewId: c.stats?.latestInterviewId ?? null
+});
+
+/** Illustrative scorecard for built-in demo profiles that have no backend record. */
+const buildSampleScore = (cand: CandidateItem): ScoreRecord => ({
+  id: `sample-${cand.id}`,
+  interviewId: `sample-${cand.id}`,
+  candidateId: cand.id,
+  overallScore: cand.score,
+  codeCorrectnessScore: Math.min(100, cand.score + 3),
+  codeEfficiencyScore: Math.min(100, cand.score + 7),
+  communicationScore: Math.max(0, cand.score - 7),
+  timeManagementScore: cand.score,
+  totalTestCases: 4,
+  passedTestCases: Math.round((Math.min(100, cand.score + 3) / 100) * 4),
+  strengths: [
+    'Strong algorithmic reasoning with explicit O(n) linear time complexity analysis.',
+    'Clear and structured problem-solving approach.'
+  ],
+  improvements: ['Elaborate more on negative and duplicate integer edge cases.'],
+  competencies: {
+    algorithms: Math.min(100, cand.score + 5),
+    problemSolving: Math.min(100, cand.score + 2),
+    codeQuality: Math.min(100, cand.score + 4),
+    verbalArticulation: Math.max(0, cand.score - 7),
+    speedAndTime: cand.score
+  },
+  createdAt: new Date().toISOString()
+});
+
+type Toast = { id: number; kind: 'error' | 'success' | 'info'; message: string };
 
 const INITIAL_CANDIDATES: CandidateItem[] = [
   {
@@ -146,10 +211,13 @@ const ACCENT_MAP: Record<AccentColor, { [shade: number]: string }> = {
 };
 
 export function App() {
-  // Theme state: default strictly to 'light' (Clean All-White)
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
+  // Theme state: restore saved preference, default to 'light' (Clean All-White)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const saved = safeStorageGet('app-theme-mode');
+    return saved === 'dark' || saved === 'contrast' || saved === 'light' ? (saved as ThemeMode) : 'light';
+  });
   const [accentColor, setAccentColor] = useState<AccentColor>(() => {
-    const saved = localStorage.getItem('app-accent-color');
+    const saved = safeStorageGet('app-accent-color');
     if (saved && ['blue', 'teal', 'emerald', 'cyan', 'amber', 'slate'].includes(saved)) {
       return saved as AccentColor;
     }
@@ -157,19 +225,57 @@ export function App() {
   });
 
   const [activeView, setActiveView] = useState<string>('dashboard');
-  const [candidatesList, setCandidatesList] = useState<CandidateItem[]>(INITIAL_CANDIDATES);
-  const [selectedCandidate, setSelectedCandidate] = useState<CandidateItem>(INITIAL_CANDIDATES[0]);
+  const sampleCandidates = useMemo(
+    () => INITIAL_CANDIDATES.map((c) => ({ ...c, isSample: true })),
+    []
+  );
+  const [candidatesList, setCandidatesList] = useState<CandidateItem[]>(sampleCandidates);
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateItem>(sampleCandidates[0]);
   const [activeStep, setActiveStep] = useState<number>(2);
 
   // Question & Code sandbox states
-  const [problems, setProblems] = useState<Problem[]>([]);
+  const [bankProblems, setBankProblems] = useState<Problem[]>([]);
+  const [interviewProblems, setInterviewProblems] = useState<Problem[]>([]);
+  const [sandboxProblem, setSandboxProblem] = useState<Problem | null>(null);
   const [isCodeModalOpen, setIsCodeModalOpen] = useState<boolean>(false);
   const [activeInterview, setActiveInterview] = useState<InterviewSession | null>(null);
+
+  // Scorecard currently shown in the analytics view
+  const [scorecard, setScorecard] = useState<{ score: ScoreRecord; interview: InterviewSession | null; isSample?: boolean } | null>(null);
+  const [isLoadingScorecard, setIsLoadingScorecard] = useState<boolean>(false);
 
   // Modals
   const [isTakeInterviewModalOpen, setIsTakeInterviewModalOpen] = useState<boolean>(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState<boolean>(false);
   const [isStartingInterview, setIsStartingInterview] = useState<boolean>(false);
+  const [isFinishingInterview, setIsFinishingInterview] = useState<boolean>(false);
+
+  // Lightweight toast notifications
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  const notify = useCallback((kind: Toast['kind'], message: string) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev.slice(-2), { id, kind, message }]);
+    window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+  }, []);
+
+  /** Loads candidates from the backend; real candidates are listed before demo profiles. */
+  const loadCandidates = useCallback(async () => {
+    try {
+      const data = await fetchCandidates(true);
+      if (Array.isArray(data) && data.length > 0) {
+        const real = data.map(toCandidateItem);
+        setCandidatesList([...real, ...sampleCandidates]);
+        setSelectedCandidate((prev) => real.find((c) => c.id === prev.id) || (prev.isSample ? real[0] : prev));
+      }
+    } catch (e) {
+      console.warn('Could not load candidates from API, using demo profiles:', e);
+    }
+  }, [sampleCandidates]);
+
+  useEffect(() => {
+    loadCandidates();
+  }, [loadCandidates]);
 
   // Sync theme with DOM
   useEffect(() => {
@@ -179,7 +285,7 @@ export function App() {
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('app-theme-mode', themeMode);
+    safeStorageSet('app-theme-mode', themeMode);
   }, [themeMode]);
 
   // Apply accent directly to DOM root style & attribute
@@ -190,7 +296,7 @@ export function App() {
     Object.entries(shades).forEach(([shade, rgb]) => {
       root.style.setProperty(`--color-accent-${shade}`, rgb);
     });
-    localStorage.setItem('app-accent-color', accentColor);
+    safeStorageSet('app-accent-color', accentColor);
   }, [accentColor]);
 
   const toggleTheme = () => {
@@ -202,7 +308,7 @@ export function App() {
       try {
         const data = await fetchQuestions();
         if (data && data.length > 0) {
-          setProblems(data);
+          setBankProblems(data);
         }
       } catch (e) {
         console.error('Error fetching questions:', e);
@@ -212,6 +318,7 @@ export function App() {
   }, []);
 
   const handleStartInterview = async (track: string, difficulty: string) => {
+    if (isStartingInterview) return;
     setIsStartingInterview(true);
     try {
       const data = await startInterviewSession({
@@ -219,36 +326,78 @@ export function App() {
         difficulty,
         track
       });
-      if (data?.interview) {
-        setActiveInterview(data.interview);
-        if (data.problems?.length) {
-          setProblems(data.problems);
-        }
-      }
-    } catch (err) {
-      console.warn('Backend interview start failed, using local simulation session:', err);
-      // Fallback interview session
-      setActiveInterview({
-        id: `int-${Date.now()}`,
-        candidateId: selectedCandidate.id,
-        candidateName: selectedCandidate.name,
-        title: `${track} Interview Assessment`,
-        track,
-        difficulty,
-        status: 'in_progress',
-        startedAt: new Date().toISOString(),
-        timeLimitMinutes: difficulty === 'Hard' ? 45 : difficulty === 'Easy' ? 15 : 30,
-        problemIds: problems.map(p => p.id),
-        currentProblemIndex: 0
-      });
-    } finally {
-      setIsStartingInterview(false);
+      setActiveInterview(data.interview);
+      setInterviewProblems(data.problems || []);
       setIsTakeInterviewModalOpen(false);
       setActiveView('interview');
+      notify('info', `Interview started for ${data.candidate?.name || selectedCandidate.name}. Good luck!`);
+    } catch (err: any) {
+      notify('error', `Could not start interview: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsStartingInterview(false);
     }
   };
 
-  const activeProblem = problems[0] || {
+  const handleFinishInterview = async (transcript: string, timeTakenSeconds: number) => {
+    if (!activeInterview) return;
+    setIsFinishingInterview(true);
+    try {
+      const data = await finishInterviewSession({
+        interviewId: activeInterview.id,
+        communicationTranscript: transcript,
+        timeTakenSeconds
+      });
+      setScorecard({ score: data.score, interview: data.interview });
+      try {
+        localStorage.removeItem(`interview-draft:${activeInterview.id}`);
+      } catch {
+        /* ignore */
+      }
+      setActiveInterview(null);
+      setInterviewProblems([]);
+      setActiveView('analytics');
+      notify('success', `Interview scored: ${data.score.overallScore}/100`);
+      loadCandidates();
+    } catch (err: any) {
+      notify('error', `Failed to finalize interview: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsFinishingInterview(false);
+    }
+  };
+
+  /** Loads a stored interview's scorecard and opens the analytics view. */
+  const openInterviewScorecard = async (interviewId: string) => {
+    setIsLoadingScorecard(true);
+    setActiveView('analytics');
+    try {
+      const data = await fetchInterviewResult(interviewId);
+      if (data.score) {
+        setScorecard({ score: data.score, interview: data.interview });
+      } else {
+        setScorecard(null);
+        notify('info', 'This interview has not been scored yet.');
+      }
+    } catch (err: any) {
+      notify('error', `Could not load scorecard: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsLoadingScorecard(false);
+    }
+  };
+
+  const openCandidateScorecard = (cand: CandidateItem) => {
+    setSelectedCandidate(cand);
+    if (cand.latestInterviewId) {
+      openInterviewScorecard(cand.latestInterviewId);
+    } else if (cand.isSample) {
+      setScorecard({ score: buildSampleScore(cand), interview: null, isSample: true });
+      setActiveView('analytics');
+    } else {
+      setScorecard(null);
+      setActiveView('analytics');
+    }
+  };
+
+  const activeProblem: Problem = sandboxProblem || bankProblems[0] || {
     id: 'prob-001',
     title: 'Two Sum',
     slug: 'two-sum',
@@ -356,7 +505,7 @@ export function App() {
                 <AIScoreSummaryCard
                   score={selectedCandidate.score}
                   summaryText="The presentation of talent is good. Algorithmic trade-offs and Big-O complexity are articulated cleanly."
-                  onHireTalent={() => setActiveView('analytics')}
+                  onHireTalent={() => openCandidateScorecard(selectedCandidate)}
                 />
 
                 {/* 4. AI Video Score Detail (4 Donut Rings) */}
@@ -368,12 +517,9 @@ export function App() {
                     speed: 85
                   }}
                   onRefresh={() => {
-                    setSelectedCandidate(prev => ({
-                      ...prev,
-                      score: Math.min(99, prev.score + 1)
-                    }));
+                    loadCandidates();
                   }}
-                  onExpand={() => setActiveView('analytics')}
+                  onExpand={() => openCandidateScorecard(selectedCandidate)}
                 />
               </div>
             </>
@@ -382,18 +528,14 @@ export function App() {
           {/* Live Technical Assessment Room */}
           {activeView === 'interview' && (
             <InterviewRoom
+              key={activeInterview?.id || 'no-interview'}
               interview={activeInterview}
-              problems={problems}
+              problems={interviewProblems}
+              candidateName={activeInterview?.candidateName}
               onStartNewSession={handleStartInterview}
-              onFinishInterview={(_transcript, _sec) => {
-                setSelectedCandidate(prev => ({
-                  ...prev,
-                  score: 91,
-                  status: 'Approved'
-                }));
-                setActiveView('analytics');
-              }}
+              onFinishInterview={handleFinishInterview}
               isStarting={isStartingInterview}
+              isFinishing={isFinishingInterview}
             />
           )}
 
@@ -404,66 +546,46 @@ export function App() {
                 setSelectedCandidate(cand);
                 setActiveView('dashboard');
               }}
-              onViewScorecard={(cand) => {
-                setSelectedCandidate(cand);
-                setActiveView('analytics');
-              }}
+              onViewScorecard={openCandidateScorecard}
             />
           )}
 
           {activeView === 'questions' && (
             <QuestionBankView
-              problems={problems}
-              onOpenProblem={() => {
+              problems={bankProblems}
+              onOpenProblem={(problem) => {
+                setSandboxProblem(problem);
                 setIsCodeModalOpen(true);
               }}
             />
           )}
 
           {activeView === 'analytics' && (
+            isLoadingScorecard ? (
+              <div className="max-w-xl mx-auto py-20 text-center">
+                <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">Loading evaluation scorecard...</p>
+              </div>
+            ) : (
             <AnalyticsDashboard
-              score={{
-                id: 'score-1',
-                interviewId: 'int-1',
-                candidateId: selectedCandidate.id,
-                overallScore: selectedCandidate.score,
-                codeCorrectnessScore: 88,
-                codeEfficiencyScore: 92,
-                communicationScore: 78,
-                timeManagementScore: 85,
-                totalTestCases: 4,
-                passedTestCases: 4,
-                strengths: [
-                  'Strong algorithmic reasoning with explicit O(n) linear time complexity analysis.',
-                  'Clear and structured problem-solving approach.'
-                ],
-                improvements: [
-                  'Elaborate more on negative and duplicate integer edge cases.'
-                ],
-                competencies: {
-                  algorithms: 85,
-                  problemSolving: 90,
-                  codeQuality: 88,
-                  verbalArticulation: 78,
-                  speedAndTime: 85
-                },
-                createdAt: new Date().toISOString()
-              }}
-              interview={activeInterview}
+              score={scorecard?.score || null}
+              isSample={scorecard?.isSample}
+              interview={scorecard?.interview || null}
               onRetake={() => setActiveView('interview')}
               onViewHistory={() => setActiveView('history')}
             />
+            )
           )}
 
           {activeView === 'history' && (
             <HistoryView
-              onSelectInterview={() => setActiveView('analytics')}
+              onSelectInterview={openInterviewScorecard}
             />
           )}
 
           {activeView === 'recruiter' && (
             <RecruiterView
-              onSelectCandidateInterview={() => setActiveView('analytics')}
+              onSelectCandidateInterview={openInterviewScorecard}
             />
           )}
 
@@ -503,11 +625,42 @@ export function App() {
         problem={activeProblem}
         interview={activeInterview}
         onTestResultsUpdated={(res) => {
-          if (res.status === 'ACCEPTED') {
-            setSelectedCandidate(prev => ({ ...prev, score: Math.min(99, prev.score + 5) }));
-          }
+          if (res.status === 'ACCEPTED') notify('success', 'All test cases passed!');
         }}
       />
+
+      {/* Toast notifications */}
+      <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-w-sm w-[calc(100%-2rem)] sm:w-auto" aria-live="polite">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            role={t.kind === 'error' ? 'alert' : 'status'}
+            className={`flex items-start gap-2 px-4 py-3 rounded-2xl border shadow-lg text-xs font-medium animate-fadeIn ${
+              t.kind === 'error'
+                ? 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-500/30'
+                : t.kind === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-500/30'
+                : 'bg-white text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:border-white/10'
+            }`}
+          >
+            {t.kind === 'error' ? (
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            ) : t.kind === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <Info className="w-4 h-4 flex-shrink-0" />
+            )}
+            <span className="flex-1 leading-relaxed">{t.message}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              aria-label="Dismiss notification"
+              className="opacity-60 hover:opacity-100"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

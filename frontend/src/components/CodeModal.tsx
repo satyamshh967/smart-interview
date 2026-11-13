@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Terminal, Sparkles, CheckCircle2, ChevronRight } from 'lucide-react';
 import { Problem, EvaluationResult, InterviewSession } from '../types';
 import { CodeEditor } from './CodeEditor';
@@ -14,29 +14,47 @@ interface CodeModalProps {
   onTestResultsUpdated?: (result: EvaluationResult) => void;
 }
 
-export const CodeModal: React.FC<CodeModalProps> = ({
-  isOpen,
+/**
+ * Outer guard: hooks live in CodeModalBody so they are never called conditionally.
+ * Keyed by problem id so switching problems resets editor state.
+ */
+export const CodeModal: React.FC<CodeModalProps> = (props) => {
+  if (!props.isOpen) return null;
+  return <CodeModalBody key={props.problem.id} {...props} />;
+};
+
+const starterFor = (problem: Problem, lang: string) =>
+  problem.starterCode[lang as keyof typeof problem.starterCode] || '';
+
+const CodeModalBody: React.FC<CodeModalProps> = ({
   onClose,
   problem,
   interview,
   onTestResultsUpdated
 }) => {
-  if (!isOpen) return null;
-
   const [selectedLanguage, setSelectedLanguage] = useState<string>('python');
-  const [code, setCode] = useState<string>(
-    problem.starterCode.python || ''
-  );
+  const [code, setCode] = useState<string>(starterFor(problem, 'python'));
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleLanguageChange = (lang: string) => {
     setSelectedLanguage(lang);
-    setCode(problem.starterCode[lang as keyof typeof problem.starterCode] || '');
+    setCode(starterFor(problem, lang));
   };
 
   const handleRunSample = async (codeToRun: string, lang: string) => {
     setIsEvaluating(true);
+    setError(null);
     try {
       const res = await evaluateCodeSubmission({
         interviewId: interview?.id,
@@ -47,8 +65,8 @@ export const CodeModal: React.FC<CodeModalProps> = ({
       });
       setEvalResult(res.evaluation);
       if (onTestResultsUpdated) onTestResultsUpdated(res.evaluation);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setError(e?.message || 'Evaluation failed');
     } finally {
       setIsEvaluating(false);
     }
@@ -56,6 +74,7 @@ export const CodeModal: React.FC<CodeModalProps> = ({
 
   const handleSubmitFull = async (codeToRun: string, lang: string) => {
     setIsEvaluating(true);
+    setError(null);
     try {
       const res = await evaluateCodeSubmission({
         interviewId: interview?.id,
@@ -66,8 +85,8 @@ export const CodeModal: React.FC<CodeModalProps> = ({
       });
       setEvalResult(res.evaluation);
       if (onTestResultsUpdated) onTestResultsUpdated(res.evaluation);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setError(e?.message || 'Evaluation failed');
     } finally {
       setIsEvaluating(false);
     }
@@ -95,6 +114,8 @@ export const CodeModal: React.FC<CodeModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close sandbox"
+            title="Close (Esc)"
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -143,7 +164,8 @@ export const CodeModal: React.FC<CodeModalProps> = ({
                 onLanguageChange={handleLanguageChange}
                 onRunSample={handleRunSample}
                 onSubmitFull={handleSubmitFull}
-                onReset={() => setCode(problem.starterCode[selectedLanguage as keyof typeof problem.starterCode] || '')}
+                onReset={() => setCode(starterFor(problem, selectedLanguage))}
+                onCodeChange={setCode}
                 isEvaluating={isEvaluating}
                 statusBadge={evalResult?.status}
               />
@@ -153,6 +175,7 @@ export const CodeModal: React.FC<CodeModalProps> = ({
               <ConsoleOutput
                 result={evalResult}
                 isEvaluating={isEvaluating}
+                error={error}
               />
             </div>
           </div>

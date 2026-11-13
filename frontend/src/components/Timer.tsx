@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Clock, AlertTriangle, Pause, Play } from 'lucide-react';
 
 interface TimerProps {
@@ -18,36 +18,42 @@ export const Timer: React.FC<TimerProps> = ({
   const [paused, setPaused] = useState(!isRunning);
   const totalSeconds = initialMinutes * 60;
 
+  // Keep latest callbacks in refs so the interval isn't torn down every render.
+  const onExpiredRef = useRef(onTimeExpired);
+  const onUpdatedRef = useRef(onSecondsUpdated);
+  onExpiredRef.current = onTimeExpired;
+  onUpdatedRef.current = onSecondsUpdated;
+  const expiredFiredRef = useRef(false);
+
   useEffect(() => {
     setSecondsRemaining(initialMinutes * 60);
+    expiredFiredRef.current = false;
   }, [initialMinutes]);
 
   useEffect(() => {
-    if (paused) return;
-
+    if (paused || secondsRemaining <= 0) return;
     const interval = setInterval(() => {
-      setSecondsRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          if (onTimeExpired) onTimeExpired();
-          return 0;
-        }
-        const updated = prev - 1;
-        if (onSecondsUpdated) {
-          onSecondsUpdated(totalSeconds - updated);
-        }
-        return updated;
-      });
+      setSecondsRemaining((prev) => Math.max(0, prev - 1));
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [paused, onTimeExpired, onSecondsUpdated, totalSeconds]);
+  }, [paused, secondsRemaining <= 0]);
+
+  // Side effects run outside the state updater (safe under StrictMode).
+  useEffect(() => {
+    onUpdatedRef.current?.(totalSeconds - secondsRemaining);
+    if (secondsRemaining <= 0 && !expiredFiredRef.current) {
+      expiredFiredRef.current = true;
+      onExpiredRef.current?.();
+    }
+  }, [secondsRemaining, totalSeconds]);
 
   const minutes = Math.floor(secondsRemaining / 60);
   const seconds = secondsRemaining % 60;
   const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-  const progressPercent = Math.max(0, Math.min(100, (secondsRemaining / totalSeconds) * 100));
+  const progressPercent = totalSeconds > 0
+    ? Math.max(0, Math.min(100, (secondsRemaining / totalSeconds) * 100))
+    : 0;
 
   // Determine state colors
   const isCritical = secondsRemaining < 120; // < 2 min

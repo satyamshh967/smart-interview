@@ -23,7 +23,8 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.disable('x-powered-by');
 app.use(morgan('dev'));
 
 // Swagger UI Documentation
@@ -44,10 +45,12 @@ app.use('/api/results', resultsRoutes);
 app.use('/api/questions', questionsRoutes);
 app.use('/api/candidates', candidatesRoutes);
 
-// Health check endpoint across all microservices
+// Health check endpoint across all microservices (probed in parallel)
 app.get('/api/health', async (req, res) => {
-  const evaluatorStatus = await checkEvaluatorHealth();
-  const nlpStatus = await checkNlpHealth();
+  const [evaluatorStatus, nlpStatus] = await Promise.all([
+    checkEvaluatorHealth(),
+    checkNlpHealth()
+  ]);
 
   res.json({
     status: 'UP',
@@ -81,6 +84,24 @@ app.get('/', (req, res) => {
       '/api/health'
     ]
   });
+});
+
+// Unknown API routes → JSON 404
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Centralized error handler (malformed JSON bodies, oversized payloads, uncaught errors)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON request body' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request payload too large' });
+  }
+  console.error('Unhandled error:', err);
+  return res.status(err?.status || 500).json({ error: err?.message || 'Internal server error' });
 });
 
 app.listen(PORT, () => {

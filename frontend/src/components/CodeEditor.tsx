@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Play, 
-  Send, 
-  RotateCcw, 
-  Type, 
-  Code2, 
-  Sparkles,
+import {
+  Play,
+  Send,
+  RotateCcw,
+  Type,
+  Code2,
   CheckCircle2,
   XCircle,
   Loader2
@@ -18,9 +17,12 @@ interface CodeEditorProps {
   onRunSample: (code: string, language: string) => void;
   onSubmitFull: (code: string, language: string) => void;
   onReset: () => void;
+  onCodeChange?: (code: string) => void;
   isEvaluating: boolean;
   statusBadge?: string;
 }
+
+const INDENT = '    ';
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
   initialCode,
@@ -29,6 +31,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onRunSample,
   onSubmitFull,
   onReset,
+  onCodeChange,
   isEvaluating,
   statusBadge
 }) => {
@@ -41,6 +44,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     setCode(initialCode);
   }, [initialCode]);
 
+  const updateCode = (next: string) => {
+    setCode(next);
+    onCodeChange?.(next);
+  };
+
   // Sync line numbers scrolling with textarea
   const handleScroll = () => {
     if (textareaRef.current && lineNumbersRef.current) {
@@ -48,23 +56,62 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   };
 
+  const setCaret = (target: HTMLTextAreaElement, pos: number) => {
+    requestAnimationFrame(() => {
+      target.selectionStart = target.selectionEnd = pos;
+    });
+  };
+
+  // Replace the current selection with text and move the caret after it.
+  const insertAtCursor = (target: HTMLTextAreaElement, text: string) => {
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    updateCode(code.substring(0, start) + text + code.substring(end));
+    setCaret(target, start + text.length);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+
+    // Ctrl/Cmd+Enter runs sample tests, Ctrl/Cmd+Shift+Enter submits.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (isEvaluating) return;
+      if (e.shiftKey) onSubmitFull(code, language);
+      else onRunSample(code, language);
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
-      const target = e.target as HTMLTextAreaElement;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
+      if (e.shiftKey) {
+        // Dedent the current line by up to one indent level
+        const caret = target.selectionStart;
+        const lineStart = code.lastIndexOf('\n', caret - 1) + 1;
+        const leading = (code.slice(lineStart).match(/^ {1,4}/) || [''])[0].length;
+        if (leading > 0) {
+          updateCode(code.slice(0, lineStart) + code.slice(lineStart + leading));
+          setCaret(target, Math.max(lineStart, caret - leading));
+        }
+        return;
+      }
+      insertAtCursor(target, INDENT);
+      return;
+    }
 
-      const newCode = code.substring(0, start) + '    ' + code.substring(end);
-      setCode(newCode);
-
-      setTimeout(() => {
-        target.selectionStart = target.selectionEnd = start + 4;
-      }, 0);
+    // Auto-indent: keep current indentation, add a level after an opening token
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      const before = code.slice(0, target.selectionStart);
+      const currentLine = before.slice(before.lastIndexOf('\n') + 1);
+      let indent = (currentLine.match(/^[ \t]*/) || [''])[0];
+      if (/[:{([]\s*$/.test(currentLine)) indent += INDENT;
+      insertAtCursor(target, '\n' + indent);
     }
   };
 
   const lines = code.split('\n');
+  const accepted = statusBadge === 'ACCEPTED';
 
   return (
     <div className="flex flex-col h-full bg-[#0D121F] rounded-2xl border border-white/5 overflow-hidden shadow-2xl">
@@ -76,6 +123,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             <select
               value={language}
               onChange={(e) => onLanguageChange(e.target.value)}
+              aria-label="Programming language"
               className="bg-transparent text-slate-200 font-medium focus:outline-none cursor-pointer"
             >
               <option value="python" className="bg-slate-900 text-slate-200">Python 3</option>
@@ -106,9 +154,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           </div>
 
           {statusBadge && (
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20">
-              <Sparkles className="w-3 h-3 text-teal-400" />
-              {statusBadge}
+            <span
+              className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                accepted
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+              }`}
+            >
+              {accepted ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              {statusBadge.replace(/_/g, ' ')}
             </span>
           )}
         </div>
@@ -127,6 +181,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           <button
             onClick={() => onRunSample(code, language)}
             disabled={isEvaluating}
+            title="Run sample tests (Ctrl+Enter)"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800/80 hover:bg-slate-700/80 active:scale-95 rounded-lg border border-white/10 transition-all disabled:opacity-50"
           >
             {isEvaluating ? (
@@ -140,6 +195,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           <button
             onClick={() => onSubmitFull(code, language)}
             disabled={isEvaluating}
+            title="Submit against all test cases (Ctrl+Shift+Enter)"
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 active:scale-95 rounded-lg shadow-sm shadow-teal-500/30 transition-all disabled:opacity-50"
           >
             {isEvaluating ? (
@@ -157,6 +213,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         {/* Line Numbers */}
         <div
           ref={lineNumbersRef}
+          aria-hidden="true"
           className="select-none py-3 px-3 text-right text-slate-600 bg-[#090D16]/50 border-r border-white/5 font-mono overflow-hidden"
           style={{ fontSize: `${fontSize}px`, lineHeight: `${fontSize * 1.5}px` }}
         >
@@ -169,11 +226,14 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         <textarea
           ref={textareaRef}
           value={code}
-          onChange={(e) => setCode(e.target.value)}
+          onChange={(e) => updateCode(e.target.value)}
           onKeyDown={handleKeyDown}
           onScroll={handleScroll}
           spellCheck={false}
-          className="flex-1 w-full h-full p-3 bg-transparent text-slate-100 resize-none focus:outline-none overflow-auto font-mono leading-relaxed"
+          autoCapitalize="off"
+          autoCorrect="off"
+          aria-label="Code editor"
+          className="flex-1 w-full h-full p-3 bg-transparent text-slate-100 resize-none focus:outline-none overflow-auto font-mono leading-relaxed whitespace-pre"
           style={{
             fontSize: `${fontSize}px`,
             lineHeight: `${fontSize * 1.5}px`,
@@ -188,6 +248,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         <div className="flex items-center gap-3">
           <span>Lines: {lines.length}</span>
           <span>Chars: {code.length}</span>
+          <span className="hidden md:inline text-slate-600">Ctrl+Enter run · Ctrl+Shift+Enter submit</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />

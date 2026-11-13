@@ -96,7 +96,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
 
               <div className="mt-5 pt-3 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
                 <span className="text-[11px] text-slate-400 font-mono">
-                  {prob.sampleTestCases.length} Sample + Hidden Suites
+                  {prob.sampleTestCases.length} Sample + {prob.hiddenTestCaseCount ?? 0} Hidden Tests
                 </span>
 
                 <button
