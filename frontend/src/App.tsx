@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
@@ -8,17 +8,30 @@ import { TeamFeedbackCard } from './components/TeamFeedbackCard';
 import { QuestionRoadmapCard } from './components/QuestionRoadmapCard';
 import { AIScoreSummaryCard } from './components/AIScoreSummaryCard';
 import { MetricDonutCard } from './components/MetricDonutCard';
-import { CodeModal } from './components/CodeModal';
-import { AnalyticsDashboard } from './components/AnalyticsDashboard';
-import { HistoryView } from './components/HistoryView';
-import { RecruiterView } from './components/RecruiterView';
-import { CandidatesView } from './components/CandidatesView';
-import { QuestionBankView } from './components/QuestionBankView';
-import { SettingsView } from './components/SettingsView';
-import { InterviewRoom } from './components/InterviewRoom';
 import { TakeInterviewBanner } from './components/TakeInterviewBanner';
 import { TakeInterviewModal } from './components/TakeInterviewModal';
 import { ThemeSelectorModal, ThemeMode, AccentColor } from './components/ThemeSelectorModal';
+
+const lazyNamed = <K extends string>(loader: () => Promise<Record<K, React.ComponentType<any>>>, name: K) =>
+  lazy(() => loader().then((m) => ({ default: m[name] })));
+const loadInterviewRoom = () => import('./components/InterviewRoom');
+const InterviewRoom = lazyNamed(loadInterviewRoom, 'InterviewRoom');
+const CodeModal = lazyNamed(() => import('./components/CodeModal'), 'CodeModal');
+const AnalyticsDashboard = lazyNamed(() => import('./components/AnalyticsDashboard'), 'AnalyticsDashboard');
+const HistoryView = lazyNamed(() => import('./components/HistoryView'), 'HistoryView');
+const RecruiterView = lazyNamed(() => import('./components/RecruiterView'), 'RecruiterView');
+const CandidatesView = lazyNamed(() => import('./components/CandidatesView'), 'CandidatesView');
+const QuestionBankView = lazyNamed(() => import('./components/QuestionBankView'), 'QuestionBankView');
+const SettingsView = lazyNamed(() => import('./components/SettingsView'), 'SettingsView');
+
+function ViewSpinner({ label }: { label: string }) {
+  return (
+    <div className="max-w-xl mx-auto py-20 text-center" role="status" aria-live="polite">
+      <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full motion-safe:animate-spin mx-auto mb-3" aria-hidden="true" />
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+    </div>
+  );
+}
 import { Problem, InterviewSession, ScoreRecord, Candidate } from './types';
 import {
   fetchQuestions,
@@ -277,6 +290,13 @@ export function App() {
     loadCandidates();
   }, [loadCandidates]);
 
+  useEffect(() => {
+    const preload = () => { loadInterviewRoom().catch(() => { /* retried on navigation */ }); };
+    const w = window as any;
+    const id = w.requestIdleCallback ? w.requestIdleCallback(preload) : window.setTimeout(preload, 1500);
+    return () => (w.cancelIdleCallback ? w.cancelIdleCallback(id) : window.clearTimeout(id));
+  }, []);
+
   // Sync theme with DOM
   useEffect(() => {
     const root = document.documentElement;
@@ -365,6 +385,23 @@ export function App() {
     }
   };
 
+  const closeCodeModal = useCallback(() => setIsCodeModalOpen(false), []);
+
+  // Stable identities for props of the memoized InterviewRoom: toasts and modal toggles
+  // re-render App, but must not re-render the live interview (and its editor).
+  const startHandlerRef = useRef(handleStartInterview);
+  startHandlerRef.current = handleStartInterview;
+  const finishHandlerRef = useRef(handleFinishInterview);
+  finishHandlerRef.current = handleFinishInterview;
+  const stableStartInterview = useCallback(
+    (track: string, difficulty: string) => startHandlerRef.current(track, difficulty),
+    []
+  );
+  const stableFinishInterview = useCallback(
+    (transcript: string, seconds: number) => finishHandlerRef.current(transcript, seconds),
+    []
+  );
+
   /** Loads a stored interview's scorecard and opens the analytics view. */
   const openInterviewScorecard = async (interviewId: string) => {
     setIsLoadingScorecard(true);
@@ -448,7 +485,8 @@ export function App() {
         />
 
         {/* 3. Main Stage Content */}
-        <main className="flex-1 p-5 md:p-6 lg:p-7 overflow-y-auto space-y-6">
+        <main id="main-content" className="flex-1 p-5 md:p-6 lg:p-7 overflow-y-auto space-y-6">
+          <Suspense fallback={<ViewSpinner label="Loading…" />}>
           {/* Home Page: Dashboard Overview */}
           {activeView === 'dashboard' && (
             <>
@@ -532,8 +570,8 @@ export function App() {
               interview={activeInterview}
               problems={interviewProblems}
               candidateName={activeInterview?.candidateName}
-              onStartNewSession={handleStartInterview}
-              onFinishInterview={handleFinishInterview}
+              onStartNewSession={stableStartInterview}
+              onFinishInterview={stableFinishInterview}
               isStarting={isStartingInterview}
               isFinishing={isFinishingInterview}
             />
@@ -562,10 +600,7 @@ export function App() {
 
           {activeView === 'analytics' && (
             isLoadingScorecard ? (
-              <div className="max-w-xl mx-auto py-20 text-center">
-                <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-xs text-slate-500 dark:text-slate-400">Loading evaluation scorecard...</p>
-              </div>
+              <ViewSpinner label="Loading evaluation scorecard…" />
             ) : (
             <AnalyticsDashboard
               score={scorecard?.score || null}
@@ -597,6 +632,7 @@ export function App() {
               onSelectAccent={(accent) => setAccentColor(accent as AccentColor)}
             />
           )}
+          </Suspense>
         </main>
       </div>
 
@@ -619,15 +655,19 @@ export function App() {
       />
 
       {/* Code Sandbox Modal (C++ Evaluation Engine) */}
-      <CodeModal
-        isOpen={isCodeModalOpen}
-        onClose={() => setIsCodeModalOpen(false)}
-        problem={activeProblem}
-        interview={activeInterview}
-        onTestResultsUpdated={(res) => {
-          if (res.status === 'ACCEPTED') notify('success', 'All test cases passed!');
-        }}
-      />
+      {isCodeModalOpen && (
+        <Suspense fallback={null}>
+          <CodeModal
+            isOpen
+            onClose={closeCodeModal}
+            problem={activeProblem}
+            interview={activeInterview}
+            onTestResultsUpdated={(res: { status: string }) => {
+              if (res.status === 'ACCEPTED') notify('success', 'All test cases passed!');
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Toast notifications */}
       <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-w-sm w-[calc(100%-2rem)] sm:w-auto" aria-live="polite">
@@ -651,7 +691,7 @@ export function App() {
               <Info className="w-4 h-4 flex-shrink-0" />
             )}
             <span className="flex-1 leading-relaxed">{t.message}</span>
-            <button
+            <button type="button"
               onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
               aria-label="Dismiss notification"
               className="opacity-60 hover:opacity-100"

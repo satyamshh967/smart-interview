@@ -65,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Center: Spacious, Minimalist Navigation Bar */}
         <nav className="flex items-center bg-slate-900/50 p-1.5 rounded-2xl border border-white/[0.06]">
-          <button
+          <button type="button"
             onClick={() => setActiveTab('room')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'room'
@@ -80,7 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('analytics')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'analytics'
@@ -92,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Scorecard</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('history')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'history'
@@ -104,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>History</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setActiveTab('recruiter')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'recruiter'

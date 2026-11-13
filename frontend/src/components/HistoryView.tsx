@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  History, 
-  TrendingUp, 
-  Award, 
-  Clock, 
-  Calendar, 
-  ChevronRight, 
-  CheckCircle2, 
+import {
+  History,
+  TrendingUp,
+  Award,
+  Clock,
+  Calendar,
+  ChevronRight,
+  CheckCircle2,
   ArrowUpRight,
   Filter
 } from 'lucide-react';
 import { InterviewHistoryItem } from '../types';
 import { fetchInterviewHistory } from '../services/api';
+import { onActivateKey } from '../utils/a11y';
 
 interface HistoryViewProps {
   onSelectInterview: (interviewId: string) => void;
@@ -41,8 +42,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onSelectInterview }) =
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto py-20 text-center">
-        <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+      <div className="max-w-5xl mx-auto py-20 text-center" role="status" aria-live="polite">
+        <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full motion-safe:animate-spin mx-auto mb-3" aria-hidden="true" />
         <p className="text-xs text-slate-500 dark:text-slate-400">Loading interview simulation history...</p>
       </div>
     );
@@ -102,7 +103,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onSelectInterview }) =
               return (
                 <div
                   key={item.interviewId}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open report: ${item.title}, ${item.candidateName}${score ? `, score ${overall}` : ', not scored'}`}
                   onClick={() => onSelectInterview(item.interviewId)}
+                  onKeyDown={onActivateKey(() => onSelectInterview(item.interviewId))}
                   className="p-5 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 cursor-pointer transition-all flex flex-wrap items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-4">
@@ -124,7 +129,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onSelectInterview }) =
                         <span>{item.track}</span>
                         <span>&bull;</span>
                         <span className="flex items-center gap-1 font-mono text-[11px]">
-                          <Calendar className="w-3 h-3 text-slate-400" />
+                          <Calendar className="w-3 h-3 text-slate-400" aria-hidden="true" />
                           {dateStr}
                         </span>
                       </div>
@@ -145,10 +150,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onSelectInterview }) =
                       </div>
                     )}
 
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
+                    <span aria-hidden="true" className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
                       <span>View Report</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                      <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                    </span>
                   </div>
                 </div>
               );

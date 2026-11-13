@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { memo, useState } from 'react';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -16,24 +16,63 @@ interface ConsoleOutputProps {
   error?: string | null;
 }
 
-export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
+const STATUS_TEXT: Record<string, string> = {
+  ACCEPTED: 'Accepted',
+  WRONG_ANSWER: 'Wrong Answer',
+  TIME_LIMIT_EXCEEDED: 'Time Limit Exceeded',
+  COMPILATION_ERROR: 'Compilation Error',
+  RUNTIME_ERROR: 'Runtime Error'
+};
+
+export const ConsoleOutput = memo(function ConsoleOutput({
   result,
   isEvaluating,
   error
-}) => {
+}: ConsoleOutputProps) {
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
-
-  // Reset the selected test case whenever a new result arrives
-  useEffect(() => {
+  // Reset the selected test case when a new result arrives (during render, no extra effect pass)
+  const [prevResult, setPrevResult] = useState(result);
+  if (result !== prevResult) {
+    setPrevResult(result);
     setActiveCaseIndex(0);
-  }, [result]);
+  }
 
+  const announcement = isEvaluating
+    ? 'Evaluating your code'
+    : error
+    ? `Evaluation failed: ${error}`
+    : result
+    ? `${STATUS_TEXT[result.status] || result.status}: ${result.passedTestCases} of ${result.totalTestCases} test cases passed`
+    : '';
+
+  return (
+    <>
+      {/* Persistent live region so screen readers hear each new result */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+      <ConsoleBody
+        result={result}
+        isEvaluating={isEvaluating}
+        error={error}
+        activeCaseIndex={activeCaseIndex}
+        setActiveCaseIndex={setActiveCaseIndex}
+      />
+    </>
+  );
+});
+
+function ConsoleBody({
+  result,
+  isEvaluating,
+  error,
+  activeCaseIndex,
+  setActiveCaseIndex
+}: ConsoleOutputProps & { activeCaseIndex: number; setActiveCaseIndex: (i: number) => void }) {
   if (isEvaluating) {
     return (
       <div className="h-48 flex flex-col items-center justify-center bg-[#0D121F] rounded-2xl border border-white/5 p-6 text-slate-400">
-        <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="text-xs font-medium text-slate-300">Evaluating in C++ Sandboxed Environment...</p>
-        <p className="text-[11px] text-slate-500 mt-1">Executing test suite with strict time and memory monitoring</p>
+        <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full motion-safe:animate-spin mb-3" aria-hidden="true" />
+        <p className="text-xs font-medium text-slate-300">Evaluating with the C++ engine…</p>
+        <p className="text-[11px] text-slate-400 mt-1">Executing test suite with time and memory limits</p>
       </div>
     );
   }
@@ -41,7 +80,7 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
   if (error) {
     return (
       <div className="h-48 flex flex-col items-center justify-center bg-[#0D121F] rounded-2xl border border-rose-500/20 p-6 text-center">
-        <AlertCircle className="w-6 h-6 mb-2 text-rose-400" />
+        <AlertCircle className="w-6 h-6 mb-2 text-rose-400" aria-hidden="true" />
         <p className="text-xs font-semibold text-rose-300">Evaluation request failed</p>
         <p className="text-[11px] text-slate-400 mt-1 max-w-md">{error}</p>
       </div>
@@ -50,8 +89,8 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
 
   if (!result) {
     return (
-      <div className="h-48 flex flex-col items-center justify-center bg-[#0D121F] rounded-2xl border border-white/5 p-6 text-slate-500">
-        <Terminal className="w-6 h-6 mb-2 opacity-50" />
+      <div className="h-48 flex flex-col items-center justify-center bg-[#0D121F] rounded-2xl border border-white/5 p-6 text-slate-400">
+        <Terminal className="w-6 h-6 mb-2 opacity-50" aria-hidden="true" />
         <p className="text-xs">Run or Submit your solution to inspect test outputs and execution performance.</p>
       </div>
     );
@@ -73,22 +112,27 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold">
             {isAccepted ? (
               <span className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                 Accepted ({passedTestCases}/{totalTestCases})
               </span>
             ) : status === 'TIME_LIMIT_EXCEEDED' ? (
               <span className="flex items-center gap-1 text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
-                <Clock className="w-3.5 h-3.5" />
+                <Clock className="w-3.5 h-3.5" aria-hidden="true" />
                 Time Limit Exceeded
               </span>
             ) : status === 'COMPILATION_ERROR' ? (
               <span className="flex items-center gap-1 text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md">
-                <AlertCircle className="w-3.5 h-3.5" />
+                <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
                 Compilation Error
+              </span>
+            ) : status === 'RUNTIME_ERROR' ? (
+              <span className="flex items-center gap-1 text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md">
+                <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                Runtime Error ({passedTestCases}/{totalTestCases} Passed)
               </span>
             ) : (
               <span className="flex items-center gap-1 text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md">
-                <XCircle className="w-3.5 h-3.5" />
+                <XCircle className="w-3.5 h-3.5" aria-hidden="true" />
                 Wrong Answer ({passedTestCases}/{totalTestCases} Passed)
               </span>
             )}
@@ -98,11 +142,11 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
         {/* Runtime & Memory Pills */}
         <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
           <div className="flex items-center gap-1 bg-slate-800/60 px-2 py-0.5 rounded-md border border-white/5" title="Execution Time">
-            <Clock className="w-3 h-3 text-teal-400" />
+            <Clock className="w-3 h-3 text-teal-400" aria-hidden="true" />
             <span>{totalExecutionTimeMs} ms</span>
           </div>
           <div className="flex items-center gap-1 bg-slate-800/60 px-2 py-0.5 rounded-md border border-white/5" title="Peak Memory">
-            <Cpu className="w-3 h-3 text-cyan-400" />
+            <Cpu className="w-3 h-3 text-cyan-400" aria-hidden="true" />
             <span>{peakMemoryKb} KB</span>
           </div>
         </div>
@@ -118,10 +162,13 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
 
       {/* Test Case Tabs */}
       {details && details.length > 0 && (
-        <div className="flex items-center gap-1.5 px-4 pt-2.5 bg-[#0A0E17] border-b border-white/5 overflow-x-auto">
+        <div className="flex items-center gap-1.5 px-4 pt-2.5 bg-[#0A0E17] border-b border-white/5 overflow-x-auto" role="tablist" aria-label="Test cases">
           {details.map((tc, idx) => (
-            <button
+            <button type="button"
               key={tc.id || idx}
+              role="tab"
+              aria-selected={activeCaseIndex === idx}
+              aria-label={`Case ${idx + 1}, ${tc.passed ? 'passed' : 'failed'}${tc.isHidden ? ', hidden' : ''}`}
               onClick={() => setActiveCaseIndex(idx)}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-t-lg text-xs font-mono transition-all ${
                 activeCaseIndex === idx
@@ -130,12 +177,12 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
               }`}
             >
               {tc.passed ? (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
               ) : (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" aria-hidden="true" />
               )}
-              <span>Case {idx + 1}</span>
-              {tc.isHidden && <EyeOff className="w-2.5 h-2.5 text-slate-500" />}
+              <span aria-hidden="true">Case {idx + 1}</span>
+              {tc.isHidden && <EyeOff className="w-2.5 h-2.5 text-slate-400" aria-hidden="true" />}
             </button>
           ))}
         </div>
@@ -181,4 +228,4 @@ export const ConsoleOutput: React.FC<ConsoleOutputProps> = ({
       )}
     </div>
   );
-};
+}

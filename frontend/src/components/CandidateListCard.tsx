@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronUp } from 'lucide-react';
+import { onActivateKey } from '../utils/a11y';
 
 export interface CandidateItem {
   id: string;
@@ -30,7 +31,7 @@ export const CandidateListCard: React.FC<CandidateListCardProps> = ({
       {/* Top Black Header Pill */}
       <div className="bg-[#181E29] text-white px-4 py-3 rounded-2xl flex items-center justify-between mb-4 shadow-sm select-none">
         <span className="text-xs font-bold tracking-tight">All Candidates</span>
-        <ChevronUp className="w-4 h-4 text-slate-400" />
+        <ChevronUp className="w-4 h-4 text-slate-400" aria-hidden="true" />
       </div>
 
       {/* Candidate Rows */}
@@ -42,7 +43,12 @@ export const CandidateListCard: React.FC<CandidateListCardProps> = ({
           return (
             <div
               key={cand.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              aria-label={`${cand.name}, ${cand.role}, ${cand.status}, score ${cand.score}`}
               onClick={() => onSelectCandidate(cand)}
+              onKeyDown={onActivateKey(() => onSelectCandidate(cand))}
               className={`p-2.5 rounded-2xl cursor-pointer transition-all border ${
                 isSelected
                   ? 'bg-slate-50 dark:bg-white/[0.04] border-slate-300 dark:border-teal-500/40 shadow-sm'

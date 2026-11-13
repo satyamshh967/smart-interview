@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { X, Terminal, Sparkles, CheckCircle2, ChevronRight } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, Terminal } from 'lucide-react';
 import { Problem, EvaluationResult, InterviewSession } from '../types';
 import { CodeEditor } from './CodeEditor';
 import { ConsoleOutput } from './ConsoleOutput';
-import { VideoRecorder } from './VideoRecorder';
 import { evaluateCodeSubmission } from '../services/api';
+import { useDialog } from '../hooks/useDialog';
 
 interface CodeModalProps {
   isOpen: boolean;
@@ -38,14 +38,9 @@ const CodeModalBody: React.FC<CodeModalProps> = ({
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Focus trap, Escape to close, focus restore (onClose read via ref: no re-subscribe per render)
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialog(dialogRef, onClose);
 
   const handleLanguageChange = (lang: string) => {
     setSelectedLanguage(lang);
@@ -94,31 +89,37 @@ const CodeModalBody: React.FC<CodeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-      <div className="bg-[#090D16] text-white w-full max-w-6xl h-[90vh] rounded-3xl border border-white/10 shadow-2xl flex flex-col overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="code-modal-title"
+        className="bg-[#090D16] text-white w-full max-w-6xl h-[90vh] rounded-3xl border border-white/10 shadow-2xl flex flex-col overflow-hidden"
+      >
         {/* Modal Header */}
         <div className="px-6 py-4 bg-slate-900/90 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center text-teal-400">
-              <Terminal className="w-4 h-4" />
+              <Terminal className="w-4 h-4" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white">{problem.title}</h2>
+                <h2 id="code-modal-title" className="text-sm font-bold text-white">{problem.title}</h2>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20">
                   {problem.difficulty}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">C++ Native Process Evaluation & Memory Sandbox</p>
+              <p className="text-[11px] text-slate-400">Native C++ engine &middot; time, memory and process limits</p>
             </div>
           </div>
 
-          <button
+          <button type="button"
             onClick={onClose}
             aria-label="Close sandbox"
             title="Close (Esc)"
             className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -159,7 +160,7 @@ const CodeModalBody: React.FC<CodeModalProps> = ({
           <div className="lg:col-span-8 flex flex-col gap-4 overflow-hidden h-full">
             <div className="flex-1 min-h-[300px]">
               <CodeEditor
-                initialCode={code}
+                value={code}
                 language={selectedLanguage}
                 onLanguageChange={handleLanguageChange}
                 onRunSample={handleRunSample}

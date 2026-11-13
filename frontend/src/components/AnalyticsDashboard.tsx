@@ -42,7 +42,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
           Complete an interview session in the Interview Room or select a past session from History to inspect its comprehensive AI evaluation scorecard.
         </p>
-        <button
+        <button type="button"
           onClick={onRetake}
           className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 transition-all shadow-md shadow-teal-500/20"
         >
@@ -88,14 +88,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
+          <button type="button"
             onClick={downloadReportJson}
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 rounded-xl border border-slate-200 dark:border-white/5 transition-all"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export Report</span>
           </button>
-          <button
+          <button type="button"
             onClick={onRetake}
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 rounded-xl shadow-md shadow-teal-500/20 transition-all"
           >

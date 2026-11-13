@@ -1,15 +1,20 @@
 version: '3.8'
 
+# Only the frontend is published to the host. The evaluator, NLP engine and API
+# are reachable only on the private compose network (the frontend's nginx proxies /api).
+
 services:
   evaluator-service:
     build:
       context: ./evaluator-service
       dockerfile: Dockerfile
     container_name: interview-evaluator
-    ports:
-      - "8082:8082"
+    expose:
+      - "8082"
     environment:
       - PORT=8082
+      - EVALUATOR_BIND=0.0.0.0
+      - EVALUATOR_TOKEN=${EVALUATOR_TOKEN:?Set EVALUATOR_TOKEN to a long random string}
     restart: unless-stopped
 
   nlp-service:
@@ -17,10 +22,11 @@ services:
       context: ./nlp-service
       dockerfile: Dockerfile
     container_name: interview-nlp
-    ports:
-      - "8081:8081"
+    expose:
+      - "8081"
     environment:
       - PORT=8081
+      - HOST=0.0.0.0
     restart: unless-stopped
 
   backend:
@@ -28,12 +34,24 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: interview-backend
-    ports:
-      - "5000:5000"
+    init: true
+    stop_grace_period: 30s
+    expose:
+      - "5000"
     environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
       - PORT=5000
       - EVALUATOR_URL=http://evaluator-service:8082
+      - EVALUATOR_TOKEN=${EVALUATOR_TOKEN:?Set EVALUATOR_TOKEN to a long random string}
       - NLP_URL=http://nlp-service:8081
+    volumes:
+      - backend-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/api/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
     depends_on:
       - evaluator-service
       - nlp-service
@@ -47,5 +65,9 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  backend-data:

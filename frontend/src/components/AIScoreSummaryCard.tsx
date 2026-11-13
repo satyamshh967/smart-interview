@@ -38,7 +38,7 @@ export const AIScoreSummaryCard: React.FC<AIScoreSummaryCardProps> = ({
       <div className="space-y-2.5 mt-4">
         {/* Shortlist / Reject toggle pills */}
         <div className="grid grid-cols-2 gap-2">
-          <button
+          <button type="button"
             onClick={() => setDecision('shortlist')}
             className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
               decision === 'shortlist'
@@ -50,7 +50,7 @@ export const AIScoreSummaryCard: React.FC<AIScoreSummaryCardProps> = ({
             <span>Shortlist</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setDecision('reject')}
             className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
               decision === 'reject'
@@ -64,7 +64,7 @@ export const AIScoreSummaryCard: React.FC<AIScoreSummaryCardProps> = ({
         </div>
 
         {/* Big Teal CTA Button */}
-        <button
+        <button type="button"
           onClick={onHireTalent}
           className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 shadow-md shadow-teal-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
         >

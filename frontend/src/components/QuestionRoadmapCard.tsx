@@ -1,5 +1,6 @@
 import React from 'react';
 import { Info, Check } from 'lucide-react';
+import { onActivateKey } from '../utils/a11y';
 
 interface QuestionRoadmapCardProps {
   activeStep: number;
@@ -22,7 +23,7 @@ export const QuestionRoadmapCard: React.FC<QuestionRoadmapCardProps> = ({
     <div className="bg-white dark:bg-[#111827] rounded-3xl p-5 border border-slate-200/80 dark:border-white/5 shadow-soft flex flex-col justify-between transition-colors">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-bold text-slate-900 dark:text-white">Question List</h3>
-        <Info className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+        <Info className="w-4 h-4 text-teal-600 dark:text-teal-400" aria-hidden="true" />
       </div>
 
       <div className="relative pl-1 space-y-4 my-auto">
@@ -36,7 +37,11 @@ export const QuestionRoadmapCard: React.FC<QuestionRoadmapCardProps> = ({
           return (
             <div
               key={s.num}
+              role="button"
+              tabIndex={0}
+              aria-current={isCurrent ? 'step' : undefined}
               onClick={() => onSelectStep(s.num)}
+              onKeyDown={onActivateKey(() => onSelectStep(s.num))}
               className="relative flex items-center gap-3 cursor-pointer group"
             >
               {/* Number Circle Badge */}
@@ -49,7 +54,7 @@ export const QuestionRoadmapCard: React.FC<QuestionRoadmapCardProps> = ({
                     : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-300 dark:border-slate-700'
                 }`}
               >
-                {isDone ? <Check className="w-3 h-3 stroke-[3]" /> : s.num}
+                {isDone ? <Check className="w-3 h-3 stroke-[3]" aria-hidden="true" /> : s.num}
               </div>
 
               {/* Question Text */}

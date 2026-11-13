@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../services/db.js';
 import { evaluateCode } from '../services/evaluatorClient.js';
 import { sanitizeEvaluation, SUPPORTED_LANGUAGES } from '../services/sanitize.js';
+import { evaluateLimiter } from '../middleware/rateLimits.js';
 
 const MAX_CODE_LENGTH = 100_000;
 
@@ -12,7 +13,7 @@ const router = express.Router();
  * POST /api/submission/evaluate
  * Forwards candidate code to C++ Code Evaluation Engine and persists submission record.
  */
-router.post('/evaluate', async (req, res) => {
+router.post('/evaluate', evaluateLimiter, async (req, res, next) => {
   try {
     const {
       interviewId,
@@ -104,8 +105,7 @@ router.post('/evaluate', async (req, res) => {
       isSampleOnly
     });
   } catch (error) {
-    console.error('Error evaluating submission:', error);
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 

@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /api/results/history
  * Returns interview evaluation history, aggregated metrics, and progress trends.
  */
-router.get('/history', (req, res) => {
+router.get('/history', (req, res, next) => {
   try {
     const { candidateId } = req.query;
 
@@ -86,8 +86,7 @@ router.get('/history', (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error fetching history:', err);
-    return res.status(500).json({ error: err.message });
+    return next(err);
   }
 });
 

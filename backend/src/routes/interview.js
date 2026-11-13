@@ -1,7 +1,8 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../services/db.js';
-import { evaluateCommunication } from '../services/nlpClient.js';
+import { evaluateCommunication, degradedCommunicationFeedback } from '../services/nlpClient.js';
+import { nlpLimiter } from '../middleware/rateLimits.js';
 import { sanitizeProblem } from '../services/sanitize.js';
 
 const router = express.Router();
@@ -38,7 +39,7 @@ const testCount = prob => (prob.sampleTestCases || []).length + (prob.hiddenTest
  * POST /api/interview/start
  * Initiates an interview session for a candidate.
  */
-router.post('/start', (req, res) => {
+router.post('/start', (req, res, next) => {
   try {
     const {
       candidateId = 'cand-101',
@@ -86,8 +87,7 @@ router.post('/start', (req, res) => {
       candidate
     });
   } catch (error) {
-    console.error('Error starting interview:', error);
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
@@ -117,7 +117,7 @@ router.get('/:id', (req, res) => {
  * POST /api/interview/communication-feedback
  * Send verbal explanation / audio transcript to Python NLP feedback engine
  */
-router.post('/communication-feedback', async (req, res) => {
+router.post('/communication-feedback', nlpLimiter, async (req, res, next) => {
   try {
     const { interviewId, transcript, problemId, code, timeTakenSeconds } = req.body || {};
 
@@ -146,8 +146,7 @@ router.post('/communication-feedback', async (req, res) => {
 
     return res.json(nlpResult);
   } catch (err) {
-    console.error('Error generating communication feedback:', err);
-    return res.status(500).json({ error: err.message });
+    return next(err);
   }
 });
 
@@ -155,7 +154,7 @@ router.post('/communication-feedback', async (req, res) => {
  * POST /api/interview/finish
  * Concludes the interview, computes composite score, and produces evaluation report.
  */
-router.post('/finish', async (req, res) => {
+router.post('/finish', nlpLimiter, async (req, res, next) => {
   try {
     const {
       interviewId,
@@ -257,18 +256,27 @@ router.post('/finish', async (req, res) => {
 
     // Call Python NLP Feedback Engine for communication scoring
     const fullTranscript = communicationTranscript || interview.communicationTranscript || '';
-    const nlpFeedback = fullTranscript.trim()
-      ? await evaluateCommunication({
+    let nlpFeedback;
+    if (fullTranscript.trim()) {
+      try {
+        nlpFeedback = await evaluateCommunication({
           transcript: fullTranscript,
           problemContext: problems.map(p => p.title).join(', '),
           timeTakenSeconds
-        })
-      : {
+        });
+      } catch (err) {
+        // Don't block the candidate's scorecard on an NLP outage; record a flagged neutral score instead
+        console.error('NLP unavailable while finishing interview:', err.message);
+        nlpFeedback = degradedCommunicationFeedback(fullTranscript);
+      }
+    } else {
+      nlpFeedback = {
           overallScore: 30,
           strengths: [],
           improvements: ['No verbal explanation was captured. Walk through your approach, complexity and edge cases out loud.'],
           summary: 'No transcript was captured for this interview.'
         };
+    }
 
     const communicationScore = Number.isFinite(nlpFeedback.overallScore) ? nlpFeedback.overallScore : 60;
 
@@ -331,8 +339,7 @@ router.post('/finish', async (req, res) => {
       score: scoreRecord
     });
   } catch (err) {
-    console.error('Error completing interview:', err);
-    return res.status(500).json({ error: err.message });
+    return next(err);
   }
 });
 

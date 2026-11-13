@@ -6,6 +6,17 @@ echo ========================================================
 
 set "PROJECT_DIR=%~dp0"
 
+rem Fresh shared secret per launch: only the API gateway may submit code to the evaluator.
+rem Windows opened with "start" inherit it from this environment.
+for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))"`) do set "EVALUATOR_TOKEN=%%T"
+
+if not exist "%PROJECT_DIR%evaluator-service\evaluator_service.exe" (
+    echo [0/4] Building C++ Code Evaluation Engine...
+    pushd "%PROJECT_DIR%evaluator-service"
+    call build.bat
+    popd
+)
+
 echo [1/4] Starting C++ Code Evaluation Engine (:8082)...
 start "C++ Evaluator Service" cmd /k "cd /d "%PROJECT_DIR%evaluator-service" && evaluator_service.exe"
 

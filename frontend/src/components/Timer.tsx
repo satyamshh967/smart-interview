@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { Clock, AlertTriangle, Pause, Play } from 'lucide-react';
 
 interface TimerProps {
@@ -8,12 +8,12 @@ interface TimerProps {
   isRunning?: boolean;
 }
 
-export const Timer: React.FC<TimerProps> = ({
+export const Timer = memo(function Timer({
   initialMinutes,
   onTimeExpired,
   onSecondsUpdated,
   isRunning = true
-}) => {
+}: TimerProps) {
   const [secondsRemaining, setSecondsRemaining] = useState(initialMinutes * 60);
   const [paused, setPaused] = useState(!isRunning);
   const totalSeconds = initialMinutes * 60;
@@ -63,7 +63,7 @@ export const Timer: React.FC<TimerProps> = ({
   let barColor = 'bg-emerald-500';
 
   if (isCritical) {
-    colorClasses = 'text-rose-400 bg-rose-500/10 border-rose-500/20 animate-pulse';
+    colorClasses = 'text-rose-400 bg-rose-500/10 border-rose-500/20 motion-safe:animate-pulse';
     barColor = 'bg-rose-500';
   } else if (isWarning) {
     colorClasses = 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -72,31 +72,41 @@ export const Timer: React.FC<TimerProps> = ({
 
   return (
     <div className="flex items-center gap-3 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/5 shadow-inner">
-      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs font-mono font-semibold tracking-wider ${colorClasses}`}>
+      <div
+        role="timer"
+        aria-label={`Time remaining ${minutes} minutes ${seconds} seconds${paused ? ', paused' : ''}`}
+        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs font-mono font-semibold tracking-wider ${colorClasses}`}
+      >
         {isCritical ? (
-          <AlertTriangle className="w-3.5 h-3.5 text-rose-400 animate-bounce" />
+          <AlertTriangle className="w-3.5 h-3.5 text-rose-400 motion-safe:animate-bounce" aria-hidden="true" />
         ) : (
-          <Clock className="w-3.5 h-3.5" />
+          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
         )}
-        <span>{formattedTime}</span>
+        <span aria-hidden="true">{formattedTime}</span>
       </div>
+      {/* One-time announcements at the warning thresholds (not every second) */}
+      <span className="sr-only" aria-live="assertive">
+        {isCritical && secondsRemaining > 0 ? 'Less than 2 minutes remaining' : isWarning ? 'Less than 5 minutes remaining' : ''}
+      </span>
 
       {/* Sleek mini progress bar */}
-      <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden hidden sm:block">
+      <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden hidden sm:block" aria-hidden="true">
         <div
-          className={`h-full transition-all duration-1000 ${barColor}`}
+          className={`h-full transition-[width] duration-1000 motion-reduce:transition-none ${barColor}`}
           style={{ width: `${progressPercent}%` }}
         />
       </div>
 
       {/* Pause/Resume button */}
-      <button
+      <button type="button"
         onClick={() => setPaused(!paused)}
         title={paused ? 'Resume Timer' : 'Pause Timer'}
+        aria-label={paused ? 'Resume timer' : 'Pause timer'}
+        aria-pressed={paused}
         className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors"
       >
-        {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+        {paused ? <Play className="w-3 h-3" aria-hidden="true" /> : <Pause className="w-3 h-3" aria-hidden="true" />}
       </button>
     </div>
   );
-};
+});

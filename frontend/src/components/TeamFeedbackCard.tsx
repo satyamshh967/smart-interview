@@ -67,7 +67,7 @@ export const TeamFeedbackCard: React.FC = () => {
               </div>
             </div>
 
-            <button className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
+            <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
               <MoreHorizontal className="w-4 h-4" />
             </button>
           </div>

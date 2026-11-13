@@ -51,7 +51,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Settings & Engine Parameters</h1>
         </div>
 
-        <button
+        <button type="button"
           onClick={handleSave}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 transition-all shadow-md shadow-teal-500/20 active:scale-95"
         >
@@ -71,13 +71,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <div className="space-y-3.5 pt-1">
             <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              <label htmlFor="settings-duration" className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                 Default Duration (Minutes)
               </label>
               <select
+                id="settings-duration"
                 value={timeLimit}
                 onChange={(e) => setTimeLimit(Number(e.target.value))}
-                className="w-full bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-teal-500"
+                className="w-full bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:border-teal-500"
               >
                 <option value={15}>15 Minutes (Express Screening)</option>
                 <option value={30}>30 Minutes (Standard Interview)</option>
@@ -93,6 +94,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <input
                 type="checkbox"
+                aria-label="Require live webcam"
                 checked={requireWebcam}
                 onChange={(e) => setRequireWebcam(e.target.checked)}
                 className="w-4 h-4 accent-teal-600 rounded cursor-pointer"
@@ -106,6 +108,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <input
                 type="checkbox"
+                aria-label="Auto-submit when the timer expires"
                 checked={autoSubmit}
                 onChange={(e) => setAutoSubmit(e.target.checked)}
                 className="w-4 h-4 accent-teal-600 rounded cursor-pointer"
@@ -129,6 +132,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <input
                 type="range"
+                aria-label="Process timeout limit"
+                aria-valuetext={`${sandboxTimeout} ms`}
                 min="1000"
                 max="8000"
                 step="500"
@@ -146,6 +151,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <input
                 type="range"
+                aria-label="Memory cap per process"
+                aria-valuetext={`${memoryLimit} MB`}
                 min="64"
                 max="512"
                 step="32"

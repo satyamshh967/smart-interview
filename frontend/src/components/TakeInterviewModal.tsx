@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useDialog } from '../hooks/useDialog';
 import { 
   X, 
   Sparkles, 
@@ -31,6 +32,8 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('Medium');
   const [enableWebcam, setEnableWebcam] = useState<boolean>(true);
   const [enableNlp, setEnableNlp] = useState<boolean>(true);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialog(dialogRef, onClose, isOpen);
 
   if (!isOpen) return null;
 
@@ -76,30 +79,39 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn select-none">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden transition-all">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn select-none" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="take-interview-title"
+        aria-describedby="take-interview-desc"
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-2xl bg-white dark:bg-[#111827] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden"
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-white/5">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-2xl bg-teal-50 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-500/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+              <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
+              <h2 id="take-interview-title" className="text-base font-bold text-slate-900 dark:text-white leading-tight">
                 Select Your Interview Assessment
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p id="take-interview-desc" className="text-xs text-slate-500 dark:text-slate-400">
                 Choose a role track & difficulty to start your live AI-evaluated simulation
               </p>
             </div>
           </div>
 
-          <button
+          <button type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+            aria-label="Close"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -107,19 +119,22 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Track Selection */}
           <div>
-            <label className="text-xs uppercase font-bold tracking-wider text-slate-400 block mb-2.5">
+            <h3 id="track-label" className="text-xs uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 block mb-2.5">
               1. Choose Specialization Track
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-labelledby="track-label">
               {tracks.map((t) => {
                 const Icon = t.icon;
                 const isSelected = selectedTrack === t.id;
 
                 return (
-                  <div
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     key={t.id}
                     onClick={() => setSelectedTrack(t.id)}
-                    className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
+                    className={`text-left p-4 rounded-2xl border cursor-pointer transition-colors flex flex-col justify-between ${
                       isSelected
                         ? 'bg-teal-50/60 dark:bg-teal-500/10 border-teal-500 shadow-sm'
                         : 'bg-white dark:bg-[#090D16] border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10'
@@ -130,9 +145,9 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
                           isSelected ? 'bg-teal-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                         }`}>
-                          <Icon className="w-4 h-4" />
+                          <Icon className="w-4 h-4" aria-hidden="true" />
                         </div>
-                        <span className="text-[10px] font-mono font-medium text-slate-400">
+                        <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400">
                           {t.time}
                         </span>
                       </div>
@@ -146,9 +161,9 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
 
                     <div className="mt-3 pt-2 border-t border-slate-100 dark:border-white/5 flex items-center justify-between text-[10px] font-semibold text-teal-600 dark:text-teal-400">
                       <span>{t.questions}</span>
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />}
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" aria-hidden="true" />}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -156,10 +171,10 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
 
           {/* Difficulty Selection */}
           <div>
-            <label className="text-xs uppercase font-bold tracking-wider text-slate-400 block mb-2.5">
-              2. Select Experience & Target Difficulty
-            </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <h3 id="difficulty-label" className="text-xs uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400 block mb-2.5">
+              2. Select Experience &amp; Target Difficulty
+            </h3>
+            <div className="grid grid-cols-3 gap-2.5" role="radiogroup" aria-labelledby="difficulty-label">
               {difficulties.map((d) => {
                 const isSelected = selectedDifficulty === d.id;
 
@@ -167,6 +182,8 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
                   <button
                     key={d.id}
                     type="button"
+                    role="radio"
+                    aria-checked={isSelected}
                     onClick={() => setSelectedDifficulty(d.id)}
                     className={`p-3 rounded-2xl border text-center transition-all ${
                       isSelected
@@ -175,7 +192,7 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
                     }`}
                   >
                     <div className="text-xs font-bold">{d.id}</div>
-                    <div className={`text-[10px] mt-0.5 ${isSelected ? 'text-teal-100' : 'text-slate-400'}`}>
+                    <div className={`text-[10px] mt-0.5 ${isSelected ? 'text-teal-100' : 'text-slate-500 dark:text-slate-400'}`}>
                       {d.badge}
                     </div>
                   </button>
@@ -217,25 +234,26 @@ export const TakeInterviewModal: React.FC<TakeInterviewModalProps> = ({
         {/* Footer Actions */}
         <div className="px-6 py-4 bg-slate-50 dark:bg-[#0E1524] border-t border-slate-100 dark:border-white/5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>C++ Sandboxed Evaluator Ready (:8082)</span>
+            <ShieldCheck className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+            <span>C++ Evaluation Engine (:8082)</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            <button type="button"
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/5 transition-colors"
             >
               Cancel
             </button>
 
-            <button
+            <button type="button"
               onClick={() => onStartInterview(selectedTrack, selectedDifficulty)}
               disabled={isStarting}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-500/25 active:scale-95 transition-all disabled:opacity-50"
+              aria-busy={isStarting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-500/25 active:scale-95 transition-[background-color,transform] disabled:opacity-50"
             >
-              <span>{isStarting ? 'Preparing Room...' : 'Start Technical Interview'}</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+              <span>{isStarting ? 'Preparing Room…' : 'Start Technical Interview'}</span>
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>

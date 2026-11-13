@@ -41,16 +41,18 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
             <input
               type="text"
               placeholder="Search problems..."
+              aria-label="Search problems"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-2 bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-teal-500"
+              className="pl-8 pr-3 py-2 bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:border-teal-500"
             />
           </div>
 
           <select
             value={filterDifficulty}
+            aria-label="Filter by difficulty"
             onChange={(e) => setFilterDifficulty(e.target.value)}
-            className="bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-teal-500"
+            className="bg-slate-50 dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:border-teal-500"
           >
             <option value="All">All Difficulties</option>
             <option value="Easy">Easy</option>
@@ -99,7 +101,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
                   {prob.sampleTestCases.length} Sample + {prob.hiddenTestCaseCount ?? 0} Hidden Tests
                 </span>
 
-                <button
+                <button type="button"
                   onClick={() => onOpenProblem(prob)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 transition-all shadow-sm active:scale-95"
                 >

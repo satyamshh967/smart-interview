@@ -8,6 +8,10 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <random>
+#include <thread>
+#include <mutex>
+#include <cstdint>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -89,10 +93,12 @@ public:
         ExecutionReport report;
         report.totalTestCases = (int)testCases.size();
 
-        std::string runId = "eval_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-        fs::path tempDir = fs::temp_directory_path() / runId;
-        std::error_code ec;
-        fs::create_directories(tempDir, ec);
+        fs::path tempDir;
+        if (!createRunDirectory(tempDir)) {
+            report.status = "RUNTIME_ERROR";
+            report.compilationError = "Evaluator could not create an isolated working directory";
+            return report;
+        }
 
         std::string lang = toLower(language);
         std::string execCommand;
@@ -119,7 +125,7 @@ public:
 
             std::string compCmd = "g++ -O2 \"" + srcFile.string() + "\" -o \"" + exeFile.string() + "\"";
             std::string compErr;
-            bool ok = runSimpleCommand(compCmd, tempDir.string(), compErr, 10000);
+            bool ok = runCompiler(compCmd, tempDir.string(), compErr);
             if (!ok || !fs::exists(exeFile)) {
                 report.status = "COMPILATION_ERROR";
                 report.compilationError = compErr.empty() ? "Compilation failed" : compErr;
@@ -136,7 +142,7 @@ public:
 
             std::string compCmd = "gcc -O2 \"" + srcFile.string() + "\" -o \"" + exeFile.string() + "\"";
             std::string compErr;
-            bool ok = runSimpleCommand(compCmd, tempDir.string(), compErr, 10000);
+            bool ok = runCompiler(compCmd, tempDir.string(), compErr);
             if (!ok || !fs::exists(exeFile)) {
                 report.status = "COMPILATION_ERROR";
                 report.compilationError = compErr.empty() ? "Compilation failed" : compErr;
@@ -217,63 +223,208 @@ private:
         fs::remove_all(p, ec);
     }
 
-    static bool runSimpleCommand(const std::string& cmd, const std::string& workingDir, std::string& output, int timeoutMs) {
+    // ---------------------------------------------------------------------
+    // Process execution
+    // ---------------------------------------------------------------------
+    static constexpr size_t MAX_CAPTURE_BYTES = 64 * 1024;          // per stream
+    static constexpr unsigned long long RUN_MEMORY_LIMIT = 256ull * 1024 * 1024;
+    static constexpr unsigned long long COMPILE_MEMORY_LIMIT = 1024ull * 1024 * 1024;
+    static constexpr unsigned long RUN_PROCESS_LIMIT = 4;      // allows interpreter helpers, blocks fork bombs
+    static constexpr unsigned long COMPILE_PROCESS_LIMIT = 8;  // g++ driver + cc1plus + as + ld
+    static constexpr int COMPILE_TIMEOUT_MS = 15000;
+
+    static bool createRunDirectory(fs::path& out) {
+        std::random_device rd;
+        std::ostringstream id;
+        id << "eval_" << std::hex << rd() << rd() << rd() << rd();
+        out = fs::temp_directory_path() / id.str();
+        std::error_code ec;
+        // create_directory (not create_directories) fails if it already exists: never reuse a directory
+        return fs::create_directory(out, ec) && !ec;
+    }
+
+    struct RunOutcome {
+        bool launched = false;
+        bool timedOut = false;
+        bool memoryExceeded = false;
+        unsigned long exitCode = 0; // DWORD on Windows
+        std::string stdoutData;
+        std::string stderrData;
+        long long elapsedMs = 0;
+        long long peakMemoryKb = 0;
+    };
+
 #ifdef _WIN32
+    /** Reads a pipe to EOF, keeping at most MAX_CAPTURE_BYTES (the rest is drained and discarded). */
+    static void drainPipe(HANDLE h, std::string& out) {
+        char buffer[4096];
+        DWORD bytesRead = 0;
+        while (ReadFile(h, buffer, sizeof(buffer), &bytesRead, NULL) && bytesRead != 0) {
+            if (out.size() < MAX_CAPTURE_BYTES) {
+                out.append(buffer, std::min<size_t>(bytesRead, MAX_CAPTURE_BYTES - out.size()));
+            }
+        }
+    }
+
+    /**
+     * Pipe creation through CreateProcess is serialized so a child launched for one
+     * submission can never inherit pipe handles that belong to a concurrent submission.
+     */
+    static std::mutex& spawnMutex() {
+        static std::mutex m;
+        return m;
+    }
+
+    /**
+     * Runs a command inside a Job Object that caps active processes and total memory,
+     * blocks UI access, and is terminated as a whole (including grandchildren) on
+     * timeout or completion. stdin is fed and stdout/stderr are drained concurrently,
+     * so large inputs/outputs can neither deadlock the runner nor exhaust memory.
+     */
+    static RunOutcome runInJob(const std::string& cmd, const std::string& workingDir,
+                               const std::string& input, int timeoutMs,
+                               DWORD processLimit, unsigned long long memoryLimit) {
+        RunOutcome out;
+
+        HANDLE hJob = CreateJobObjectA(NULL, NULL);
+        if (!hJob) return out;
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION li;
+        ZeroMemory(&li, sizeof(li));
+        li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+                                              JOB_OBJECT_LIMIT_ACTIVE_PROCESS |
+                                              JOB_OBJECT_LIMIT_JOB_MEMORY |
+                                              JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
+        li.BasicLimitInformation.ActiveProcessLimit = processLimit;
+        li.JobMemoryLimit = (SIZE_T)memoryLimit;
+        SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &li, sizeof(li));
+        JOBOBJECT_BASIC_UI_RESTRICTIONS ui;
+        ui.UIRestrictionsClass = JOB_OBJECT_UILIMIT_ALL;
+        SetInformationJobObject(hJob, JobObjectBasicUIRestrictions, &ui, sizeof(ui));
+
         SECURITY_ATTRIBUTES sa;
         sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = TRUE;
         sa.lpSecurityDescriptor = NULL;
 
-        HANDLE hChildStd_OUT_Rd = NULL;
-        HANDLE hChildStd_OUT_Wr = NULL;
-        if (!CreatePipe(&hChildStd_OUT_Rd, &hChildStd_OUT_Wr, &sa, 0)) return false;
-        SetHandleInformation(hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0);
-
-        STARTUPINFOA si;
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(si);
-        si.hStdError = hChildStd_OUT_Wr;
-        si.hStdOutput = hChildStd_OUT_Wr;
-        si.dwFlags |= STARTF_USESTDHANDLES;
-
+        HANDLE hIn_Rd = NULL, hIn_Wr = NULL, hOut_Rd = NULL, hOut_Wr = NULL, hErr_Rd = NULL, hErr_Wr = NULL;
         PROCESS_INFORMATION pi;
         ZeroMemory(&pi, sizeof(pi));
+        BOOL success = FALSE;
+        {
+            std::lock_guard<std::mutex> lock(spawnMutex());
+            if (!CreatePipe(&hIn_Rd, &hIn_Wr, &sa, 0) ||
+                !CreatePipe(&hOut_Rd, &hOut_Wr, &sa, 0) ||
+                !CreatePipe(&hErr_Rd, &hErr_Wr, &sa, 0)) {
+                for (HANDLE h : {hIn_Rd, hIn_Wr, hOut_Rd, hOut_Wr, hErr_Rd, hErr_Wr}) if (h) CloseHandle(h);
+                CloseHandle(hJob);
+                return out;
+            }
+            // Parent-side ends must never be inherited
+            SetHandleInformation(hIn_Wr, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(hOut_Rd, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(hErr_Rd, HANDLE_FLAG_INHERIT, 0);
 
-        std::string cmdCopy = cmd;
-        BOOL success = CreateProcessA(NULL, cmdCopy.data(), NULL, NULL, TRUE, 0, NULL,
-                                      workingDir.empty() ? NULL : workingDir.c_str(), &si, &pi);
-        CloseHandle(hChildStd_OUT_Wr);
+            STARTUPINFOA si;
+            ZeroMemory(&si, sizeof(si));
+            si.cb = sizeof(si);
+            si.hStdInput = hIn_Rd;
+            si.hStdOutput = hOut_Wr;
+            si.hStdError = hErr_Wr;
+            si.dwFlags |= STARTF_USESTDHANDLES;
+
+            std::string cmdCopy = cmd;
+            success = CreateProcessA(NULL, cmdCopy.data(), NULL, NULL, TRUE,
+                                     CREATE_SUSPENDED | CREATE_NO_WINDOW, NULL,
+                                     workingDir.empty() ? NULL : workingDir.c_str(), &si, &pi);
+            // Child-side ends are no longer needed in this process
+            CloseHandle(hIn_Rd);
+            CloseHandle(hOut_Wr);
+            CloseHandle(hErr_Wr);
+        }
 
         if (!success) {
-            CloseHandle(hChildStd_OUT_Rd);
+            CloseHandle(hIn_Wr);
+            CloseHandle(hOut_Rd);
+            CloseHandle(hErr_Rd);
+            CloseHandle(hJob);
+            return out;
+        }
+
+        if (!AssignProcessToJobObject(hJob, pi.hProcess)) {
+            // Never run user code outside the job
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            CloseHandle(hIn_Wr);
+            CloseHandle(hOut_Rd);
+            CloseHandle(hErr_Rd);
+            CloseHandle(hJob);
+            return out;
+        }
+        out.launched = true;
+
+        std::thread writer([hIn_Wr, &input] {
+            size_t offset = 0;
+            while (offset < input.size()) {
+                DWORD written = 0;
+                DWORD chunk = (DWORD)std::min<size_t>(input.size() - offset, 64 * 1024);
+                if (!WriteFile(hIn_Wr, input.data() + offset, chunk, &written, NULL) || written == 0) break;
+                offset += written;
+            }
+            CloseHandle(hIn_Wr);
+        });
+        std::thread outReader([hOut_Rd, &out] { drainPipe(hOut_Rd, out.stdoutData); });
+        std::thread errReader([hErr_Rd, &out] { drainPipe(hErr_Rd, out.stderrData); });
+
+        auto startTime = std::chrono::steady_clock::now();
+        ResumeThread(pi.hThread);
+        DWORD waitRes = WaitForSingleObject(pi.hProcess, (DWORD)timeoutMs);
+        out.elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime).count();
+        out.timedOut = (waitRes == WAIT_TIMEOUT);
+
+        // Kill the whole tree: grandchildren holding inherited pipe ends die too,
+        // so the reader threads always reach EOF.
+        TerminateJobObject(hJob, 1);
+        WaitForSingleObject(pi.hProcess, 2000);
+
+        writer.join();
+        outReader.join();
+        errReader.join();
+
+        GetExitCodeProcess(pi.hProcess, &out.exitCode);
+
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION usage;
+        ZeroMemory(&usage, sizeof(usage));
+        if (QueryInformationJobObject(hJob, JobObjectExtendedLimitInformation, &usage, sizeof(usage), NULL)) {
+            out.peakMemoryKb = (long long)(usage.PeakJobMemoryUsed / 1024);
+            out.memoryExceeded = usage.PeakJobMemoryUsed >= (memoryLimit / 100) * 98;
+        }
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        CloseHandle(hOut_Rd);
+        CloseHandle(hErr_Rd);
+        CloseHandle(hJob);
+        return out;
+    }
+#endif
+
+    static bool runCompiler(const std::string& cmd, const std::string& workingDir, std::string& output) {
+#ifdef _WIN32
+        RunOutcome r = runInJob(cmd, workingDir, "", COMPILE_TIMEOUT_MS, COMPILE_PROCESS_LIMIT, COMPILE_MEMORY_LIMIT);
+        if (!r.launched) {
             output = "Failed to launch compilation process";
             return false;
         }
-
-        DWORD waitResult = WaitForSingleObject(pi.hProcess, timeoutMs);
-        if (waitResult == WAIT_TIMEOUT) {
-            TerminateProcess(pi.hProcess, 1);
+        if (r.timedOut) {
             output = "Compilation timed out";
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-            CloseHandle(hChildStd_OUT_Rd);
             return false;
         }
-
-        char buffer[4096];
-        DWORD bytesRead = 0;
-        while (ReadFile(hChildStd_OUT_Rd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead != 0) {
-            buffer[bytesRead] = '\0';
-            output += buffer;
-        }
-
-        DWORD exitCode = 0;
-        GetExitCodeProcess(pi.hProcess, &exitCode);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        CloseHandle(hChildStd_OUT_Rd);
-        return exitCode == 0;
+        output = r.stderrData + r.stdoutData;
+        return r.exitCode == 0;
 #else
+        output = "Compilation is only supported on the Windows evaluator build";
         return false;
 #endif
     }
@@ -284,119 +435,44 @@ private:
                                      int timeoutMs,
                                      TestCaseOutput& result) {
 #ifdef _WIN32
-        SECURITY_ATTRIBUTES sa;
-        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-        sa.bInheritHandle = TRUE;
-        sa.lpSecurityDescriptor = NULL;
+        RunOutcome r = runInJob(cmd, workingDir, input, timeoutMs, RUN_PROCESS_LIMIT, RUN_MEMORY_LIMIT);
+        result.executionTimeMs = r.elapsedMs;
+        result.memoryKb = r.peakMemoryKb;
 
-        HANDLE hIn_Rd = NULL, hIn_Wr = NULL;
-        HANDLE hOut_Rd = NULL, hOut_Wr = NULL;
-        HANDLE hErr_Rd = NULL, hErr_Wr = NULL;
-
-        CreatePipe(&hIn_Rd, &hIn_Wr, &sa, 0);
-        CreatePipe(&hOut_Rd, &hOut_Wr, &sa, 0);
-        CreatePipe(&hErr_Rd, &hErr_Wr, &sa, 0);
-
-        SetHandleInformation(hIn_Wr, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(hOut_Rd, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(hErr_Rd, HANDLE_FLAG_INHERIT, 0);
-
-        if (!input.empty()) {
-            DWORD written = 0;
-            WriteFile(hIn_Wr, input.c_str(), (DWORD)input.length(), &written, NULL);
-        }
-        CloseHandle(hIn_Wr);
-
-        STARTUPINFOA si;
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(si);
-        si.hStdInput = hIn_Rd;
-        si.hStdOutput = hOut_Wr;
-        si.hStdError = hErr_Wr;
-        si.dwFlags |= STARTF_USESTDHANDLES;
-
-        PROCESS_INFORMATION pi;
-        ZeroMemory(&pi, sizeof(pi));
-
-        std::string cmdCopy = cmd;
-        auto startTime = std::chrono::high_resolution_clock::now();
-
-        BOOL success = CreateProcessA(NULL, cmdCopy.data(), NULL, NULL, TRUE, 0, NULL,
-                                      workingDir.empty() ? NULL : workingDir.c_str(), &si, &pi);
-
-        CloseHandle(hIn_Rd);
-        CloseHandle(hOut_Wr);
-        CloseHandle(hErr_Wr);
-
-        if (!success) {
-            CloseHandle(hOut_Rd);
-            CloseHandle(hErr_Rd);
+        if (!r.launched) {
             result.passed = false;
-            result.error = "Failed to spawn runner process";
+            result.error = "Runtime Error: failed to start the runner process";
             return;
         }
-
-        DWORD waitRes = WaitForSingleObject(pi.hProcess, timeoutMs);
-        auto endTime = std::chrono::high_resolution_clock::now();
-        result.executionTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-
-        // Get peak memory usage
-        PROCESS_MEMORY_COUNTERS pmc;
-        if (GetProcessMemoryInfo(pi.hProcess, &pmc, sizeof(pmc))) {
-            result.memoryKb = pmc.PeakWorkingSetSize / 1024;
-        } else {
-            result.memoryKb = 1024;
-        }
-
-        if (waitRes == WAIT_TIMEOUT) {
-            TerminateProcess(pi.hProcess, 1);
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-            CloseHandle(hOut_Rd);
-            CloseHandle(hErr_Rd);
+        if (r.timedOut) {
             result.passed = false;
             result.error = "Time Limit Exceeded (> " + std::to_string(timeoutMs) + "ms)";
             return;
         }
 
-        char buffer[2048];
-        DWORD bytesRead = 0;
-        std::string stdoutStr;
-        while (ReadFile(hOut_Rd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead != 0) {
-            buffer[bytesRead] = '\0';
-            stdoutStr += buffer;
-        }
-        CloseHandle(hOut_Rd);
-
-        std::string stderrStr;
-        while (ReadFile(hErr_Rd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead != 0) {
-            buffer[bytesRead] = '\0';
-            stderrStr += buffer;
-        }
-        CloseHandle(hErr_Rd);
-
-        DWORD exitCode = 0;
-        GetExitCodeProcess(pi.hProcess, &exitCode);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-
-        result.actualOutput = stdoutStr;
+        result.actualOutput = r.stdoutData;
         while (!result.actualOutput.empty() && (result.actualOutput.back() == '\n' || result.actualOutput.back() == '\r')) {
             result.actualOutput.pop_back();
         }
 
-        if (exitCode != 0) {
+        if (r.memoryExceeded) {
             result.passed = false;
-            result.error = "Runtime Error (code " + std::to_string(exitCode) + "): " + stderrStr;
+            result.error = "Runtime Error: Memory Limit Exceeded (" + std::to_string(RUN_MEMORY_LIMIT / (1024 * 1024)) + " MB)";
+            return;
+        }
+        if (r.exitCode != 0) {
+            result.passed = false;
+            result.error = "Runtime Error (code " + std::to_string(r.exitCode) + "): " + r.stderrData;
             return;
         }
 
-        std::string normExp = normalize(result.expectedOutput);
-        std::string normAct = normalize(result.actualOutput);
-        result.passed = (normExp == normAct);
-        if (!result.passed && !stderrStr.empty()) {
-            result.error = stderrStr;
+        result.passed = (normalize(result.expectedOutput) == normalize(result.actualOutput));
+        if (!result.passed && !r.stderrData.empty()) {
+            result.error = r.stderrData;
         }
+#else
+        result.passed = false;
+        result.error = "Runtime Error: code execution is only supported on the Windows evaluator build";
 #endif
     }
 };

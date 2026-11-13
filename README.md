@@ -172,6 +172,31 @@ Access the application at `http://localhost:3000`.
 
 ---
 
+## Security & Configuration
+
+The evaluator **runs untrusted candidate code**, so the services are locked down by default:
+
+- **Loopback only.** The API gateway, NLP engine and C++ evaluator bind to `127.0.0.1` unless `HOST` / `EVALUATOR_BIND` is set. In Docker Compose only the frontend is published; everything else stays on the private network.
+- **Gateway-only evaluator access.** The evaluator rejects requests without `Content-Type: application/json`, which blocks browser drive-by requests, and sends no CORS headers. When `EVALUATOR_TOKEN` is set, it also requires a matching `X-Evaluator-Token`. `start-all.ps1` / `start-all.bat` generate a fresh token on every launch; Compose requires you to set one: `EVALUATOR_TOKEN=$(openssl rand -hex 32) docker compose up`.
+- **Process limits.** Each compile/run happens in a Windows Job Object with a wall-clock timeout, a 256 MB memory cap (1 GB for compilers), a process-count cap, and whole-tree termination. Output is capped at 64 KB per stream, and the request size, test-case count and number of concurrent evaluations are all bounded.
+- **Not a full sandbox.** Candidate code still runs as the evaluator's OS user and can read files that user can read. For anything beyond local practice, run `evaluator_service.exe` under a dedicated low-privilege local account with no access to the repo or your profile, and block its outbound network access in Windows Firewall.
+- **Hidden tests stay hidden.** Hidden test inputs and outputs never leave the gateway; clients only see pass/fail and timing.
+
+| Variable | Service | Default | Purpose |
+|---|---|---|---|
+| `HOST` | gateway, NLP | `127.0.0.1` | Bind address (`0.0.0.0` in containers) |
+| `EVALUATOR_BIND` | evaluator | `127.0.0.1` | Bind address |
+| `EVALUATOR_TOKEN` | evaluator, gateway | _(unset)_ | Shared secret for `/evaluate` |
+| `CORS_ORIGINS` | gateway | _(unset = CORS off)_ | Comma-separated allowed origins, if a separate-origin client is needed |
+| `EVAL_RATE_LIMIT_PER_MIN` | gateway | `20` | Per-IP limit for code evaluation |
+| `NLP_RATE_LIMIT_PER_MIN` | gateway | `30` | Per-IP limit for NLP feedback / finish |
+| `TRUST_PROXY_HOPS` | gateway | `1` | Reverse proxies in front of the API (for client IPs) |
+| `ENABLE_API_DOCS` | gateway | `true` | Set `false` to hide `/api/docs` |
+
+Health probes: `/api/health/live` (process up) and `/api/health/ready` (evaluator reachable; returns 503 while draining). The gateway shuts down gracefully on SIGTERM/SIGINT and flushes the data store before exiting.
+
+---
+
 ## Performance Notes
 
 - **C++ Execution Engine**: Process sandboxing executes user code in temporary isolated workspaces with strict timeout thresholds (default 3500ms) and peak working set memory measurement. Submissions execute in sub-millisecond to tens-of-milliseconds ranges.

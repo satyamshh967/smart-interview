@@ -1,8 +1,8 @@
 import React from 'react';
-import { 
-  ChevronLeft, 
-  Sun, 
-  Moon, 
+import {
+  ChevronLeft,
+  Sun,
+  Moon,
   BookOpen,
   Code,
   Sparkles
@@ -34,12 +34,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     <header className="h-16 px-5 lg:px-8 flex items-center justify-between border-b border-slate-200/90 dark:border-white/5 bg-white dark:bg-[#111827] transition-colors select-none">
       {/* Left: Back Arrow, Title, Role Tag */}
       <div className="flex items-center gap-3">
-        <button
+        <button type="button"
           onClick={onBack ? onBack : () => window.location.reload()}
           className="w-8 h-8 rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           title="Back to Overview"
+          aria-label="Back to overview"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
         </button>
 
         <div className="flex items-center gap-2.5">
@@ -56,33 +57,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       {/* Right Controls: Take Interview CTA, Code Sandbox, Theme Toggle, Bell, Profile */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Prominent Take Interview Button */}
-        <button
+        <button type="button"
           onClick={onOpenTakeInterview}
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl text-white bg-teal-600 hover:bg-teal-700 shadow-md shadow-teal-500/25 active:scale-95 transition-all"
         >
-          <Sparkles className="w-3.5 h-3.5 text-teal-200" />
+          <Sparkles className="w-3.5 h-3.5 text-teal-200" aria-hidden="true" />
           <span>Take Interview</span>
         </button>
 
         {/* Quick Open Sandbox Button */}
-        <button
+        <button type="button"
           onClick={onOpenCodeEditor}
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-teal-500/10 text-slate-700 dark:text-teal-400 border border-slate-200 dark:border-teal-500/20 hover:bg-slate-200 dark:hover:bg-teal-500/20 transition-all shadow-sm"
         >
-          <Code className="w-3.5 h-3.5" />
+          <Code className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Code Sandbox</span>
         </button>
 
         {/* Theme Options (Palette) Button */}
-        <button
+        <button type="button"
           onClick={onOpenThemeModal}
           className="w-9 h-9 rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           title="Themes & Appearance Options"
+          aria-label="Theme and appearance options"
         >
           {theme === 'dark' ? (
-            <Sun className="w-4 h-4 text-amber-400" />
+            <Sun className="w-4 h-4 text-amber-400" aria-hidden="true" />
           ) : (
-            <Moon className="w-4 h-4 text-slate-700" />
+            <Moon className="w-4 h-4 text-slate-700" aria-hidden="true" />
           )}
         </button>
 

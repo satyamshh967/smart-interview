@@ -1,53 +1,41 @@
-const NLP_URL = process.env.NLP_URL || 'http://localhost:8081';
+import { config } from '../config.js';
+import { postJson, probeHealth } from './upstream.js';
 
-export async function evaluateCommunication({ transcript, problemContext = '', code = '', timeTakenSeconds = 0 }) {
-  try {
-    const response = await fetch(`${NLP_URL}/nlp/evaluate`, {
-      signal: AbortSignal.timeout(10000),
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        transcript,
-        problemContext,
-        code,
-        timeTakenSeconds
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`NLP service responded with status ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (err) {
-    console.error('NLP Client Error:', err.message);
-    return {
-      overallScore: 60,
-      technicalClarityScore: 65,
-      complexityAwarenessScore: 50,
-      structuralCoherenceScore: 60,
-      verbalConfidenceScore: 70,
-      detectedKeywords: ["approach", "complexity", "solution"],
-      complexityIdentified: true,
-      wordCount: transcript ? transcript.split(/\s+/).length : 0,
-      fillerCount: 0,
-      strengths: ["Clear verbal cadence and articulation."],
-      improvements: ["Connect with Python NLP engine for deep linguistic analysis."],
-      summary: `NLP engine offline or evaluating locally. Transcript length: ${transcript ? transcript.length : 0} characters.`
-    };
-  }
+/**
+ * Scores a verbal explanation with the Python NLP engine.
+ * Throws UpstreamUnavailableError (HTTP 503) if the engine is unreachable.
+ */
+export function evaluateCommunication({ transcript, problemContext = '', code = '', timeTakenSeconds = 0 }) {
+  return postJson(
+    'NLP feedback service',
+    `${config.nlpUrl}/nlp/evaluate`,
+    { transcript, problemContext, code, timeTakenSeconds },
+    10000
+  );
 }
 
-export async function checkNlpHealth() {
-  try {
-    const response = await fetch(`${NLP_URL}/health`, { signal: AbortSignal.timeout(2000) });
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (e) {
-    return { status: 'DOWN', error: e.message };
-  }
-  return { status: 'DOWN' };
+/**
+ * Neutral placeholder used only when finalizing an interview while the NLP engine is down.
+ * Flagged `degraded` so the scorecard never presents it as a real analysis.
+ */
+export function degradedCommunicationFeedback(transcript = '') {
+  return {
+    overallScore: 60,
+    technicalClarityScore: 60,
+    complexityAwarenessScore: 60,
+    structuralCoherenceScore: 60,
+    verbalConfidenceScore: 60,
+    detectedKeywords: [],
+    complexityIdentified: false,
+    wordCount: transcript ? transcript.trim().split(/\s+/).filter(Boolean).length : 0,
+    fillerCount: 0,
+    strengths: [],
+    improvements: ['Communication was not analyzed because the NLP engine was unavailable; a neutral score was used.'],
+    summary: 'NLP engine unavailable at scoring time — communication score is a neutral placeholder.',
+    degraded: true
+  };
+}
+
+export function checkNlpHealth() {
+  return probeHealth(`${config.nlpUrl}/health`);
 }

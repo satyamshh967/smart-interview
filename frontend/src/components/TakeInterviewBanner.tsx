@@ -44,7 +44,7 @@ export const TakeInterviewBanner: React.FC<TakeInterviewBannerProps> = ({
         {quickOptions.map((opt) => {
           const Icon = opt.icon;
           return (
-            <button
+            <button type="button"
               key={opt.track}
               onClick={() => onQuickStart(opt.track, opt.diff)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/80 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-300 dark:hover:bg-teal-500/10 dark:hover:text-teal-400 border border-slate-200/80 dark:border-white/5 transition-all shadow-sm active:scale-95 group"
@@ -55,7 +55,7 @@ export const TakeInterviewBanner: React.FC<TakeInterviewBannerProps> = ({
           );
         })}
 
-        <button
+        <button type="button"
           onClick={onOpenCustomModal}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-md shadow-teal-500/20 active:scale-95 transition-all"
         >

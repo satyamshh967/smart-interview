@@ -1,5 +1,7 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
+import { config } from '../config.js';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,6 +49,9 @@ class Database {
       scores: [],
       problems: []
     };
+    this.dirty = false;
+    this.flushTimer = null;
+    this.writing = null;
     this.load();
   }
 
@@ -69,7 +74,12 @@ class Database {
         this.store.submissions = parsed.submissions || [];
         this.store.scores = parsed.scores || [];
       } catch (e) {
-        console.error('Failed reading store.json, reinitializing:', e);
+        // Keep the unreadable file for recovery instead of silently overwriting it
+        const backup = `${STORE_PATH}.corrupt-${Date.now()}`;
+        try {
+          fs.renameSync(STORE_PATH, backup);
+        } catch { /* ignore */ }
+        console.error(`Failed reading store.json (moved to ${backup}), reinitializing:`, e);
         this.store.candidates = initialCandidates;
         this.save();
       }
@@ -79,20 +89,46 @@ class Database {
     }
   }
 
+  /**
+   * Marks the store dirty. Writes are coalesced and performed asynchronously
+   * off the request path, so a burst of requests causes a single disk write.
+   */
   save() {
-    try {
-      // Write to a temp file then rename so a crash mid-write can't corrupt the store.
-      const tmpPath = `${STORE_PATH}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify({
-        candidates: this.store.candidates,
-        interviews: this.store.interviews,
-        submissions: this.store.submissions,
-        scores: this.store.scores
-      }, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, STORE_PATH);
-    } catch (e) {
-      console.error('Failed to write store.json:', e);
+    this.dirty = true;
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush().catch(e => console.error('Failed to write store.json:', e));
+    }, config.storeFlushMs);
+  }
+
+  /** Writes pending changes to disk now (temp file + rename, so a crash can't corrupt the store). */
+  async flush() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
+    while (this.writing) await this.writing; // serialize with any in-flight write
+    if (!this.dirty) return;
+    this.dirty = false;
+
+    const data = JSON.stringify({
+      candidates: this.store.candidates,
+      interviews: this.store.interviews,
+      submissions: this.store.submissions,
+      scores: this.store.scores
+    });
+    const tmpPath = `${STORE_PATH}.tmp`;
+    this.writing = fsp.writeFile(tmpPath, data, 'utf-8')
+      .then(() => fsp.rename(tmpPath, STORE_PATH))
+      .catch(e => {
+        this.dirty = true; // retry on the next save/flush
+        throw e;
+      })
+      .finally(() => {
+        this.writing = null;
+      });
+    await this.writing;
   }
 
   // Candidates

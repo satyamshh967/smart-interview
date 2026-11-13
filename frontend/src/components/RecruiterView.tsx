@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  Building2, 
-  GraduationCap, 
-  Users, 
-  Award, 
-  CheckCircle2, 
-  TrendingUp, 
+import {
+  Building2,
+  GraduationCap,
+  Users,
+  Award,
+  CheckCircle2,
+  TrendingUp,
   ChevronRight,
   Filter,
   Search
 } from 'lucide-react';
 import { fetchInterviewHistory, fetchCandidates } from '../services/api';
 import { Candidate, InterviewHistoryItem } from '../types';
+import { onActivateKey } from '../utils/a11y';
 
 interface RecruiterViewProps {
   onSelectCandidateInterview: (interviewId: string) => void;
@@ -67,7 +68,7 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({ onSelectCandidateI
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 rounded-xl text-xs font-semibold">
-            <CheckCircle2 className="w-3.5 h-3.5" />
+            <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
             <span>Automated Scoring Verified</span>
           </div>
         </div>
@@ -104,18 +105,19 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({ onSelectCandidateI
       <div className="bg-white dark:bg-[#111827] rounded-3xl border border-slate-200/80 dark:border-white/5 overflow-hidden shadow-soft">
         <div className="p-4 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200/80 dark:border-white/5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <GraduationCap className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            <GraduationCap className="w-4 h-4 text-teal-600 dark:text-teal-400" aria-hidden="true" />
             <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Cohort Assessment Registry</span>
           </div>
 
           <div className="relative w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" aria-hidden="true" />
             <input
               type="text"
               placeholder="Search candidate or track..."
+              aria-label="Search by candidate or track"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-teal-500 font-sans"
+              className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-[#090D16] border border-slate-200 dark:border-white/10 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:border-teal-500 font-sans"
             />
           </div>
         </div>
@@ -133,7 +135,11 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({ onSelectCandidateI
               return (
                 <div
                   key={item.interviewId}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open dossier: ${item.candidateName}, ${item.title}`}
                   onClick={() => onSelectCandidateInterview(item.interviewId)}
+                  onKeyDown={onActivateKey(() => onSelectCandidateInterview(item.interviewId))}
                   className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-all flex flex-wrap items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-3">
@@ -162,9 +168,9 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({ onSelectCandidateI
                       <span className="text-[10px] text-slate-400 block uppercase">Overall Rating</span>
                     </div>
 
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
+                    <button type="button" className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
                       <span>Detailed Dossier</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
+                      <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   </div>
                 </div>

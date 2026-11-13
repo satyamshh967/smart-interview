@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Play, 
-  Pause, 
-  Volume2, 
-  VolumeX, 
-  Maximize2, 
-  Video, 
-  Code2, 
+import {
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Video,
+  Code2,
   Sparkles,
   Camera,
   RefreshCw
@@ -122,11 +122,11 @@ export const VideoStage: React.FC<VideoStageProps> = ({
 
       {/* Center Action Overlay: Open Code Sandbox */}
       <div className="absolute top-20 right-5 z-10">
-        <button
+        <button type="button"
           onClick={onOpenCodeEditor}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-white text-xs font-semibold shadow-lg shadow-teal-500/25 transition-transform hover:scale-105 active:scale-95"
         >
-          <Code2 className="w-3.5 h-3.5" />
+          <Code2 className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Launch Code Sandbox</span>
         </button>
       </div>
@@ -143,11 +143,12 @@ export const VideoStage: React.FC<VideoStageProps> = ({
       {/* Video Control Bar at Bottom */}
       <div className="absolute bottom-0 inset-x-0 z-10 px-6 py-3.5 bg-gradient-to-t from-black/90 to-transparent flex items-center justify-between gap-4 text-white">
         <div className="flex items-center gap-3">
-          <button
+          <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
           >
-            {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
+            {isPlaying ? <Pause className="w-4 h-4 fill-white" aria-hidden="true" /> : <Play className="w-4 h-4 fill-white ml-0.5" aria-hidden="true" />}
           </button>
 
           <span className="text-xs font-mono font-medium text-slate-300">
@@ -165,25 +166,30 @@ export const VideoStage: React.FC<VideoStageProps> = ({
 
         {/* Right Tools: Volume, Camera Toggle, Fullscreen */}
         <div className="flex items-center gap-3">
-          <button
+          <button type="button"
             onClick={() => setUseWebcam(!useWebcam)}
+            aria-label={useWebcam ? 'Switch to preset video' : 'Switch to live webcam'}
+            aria-pressed={useWebcam}
             title={useWebcam ? "Switch to Preset Video" : "Switch to Live Webcam"}
             className={`p-1.5 rounded-lg text-xs transition-colors ${
               useWebcam ? 'bg-teal-500 text-white' : 'text-slate-300 hover:bg-white/10'
             }`}
           >
-            <Camera className="w-4 h-4" />
+            <Camera className="w-4 h-4" aria-hidden="true" />
           </button>
 
           <div className="hidden sm:flex items-center gap-1.5">
-            <button
+            <button type="button"
               onClick={() => setIsMuted(!isMuted)}
+              aria-label={isMuted ? 'Unmute' : 'Mute'}
+              aria-pressed={isMuted}
               className="text-slate-300 hover:text-white"
             >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {isMuted ? <VolumeX className="w-4 h-4" aria-hidden="true" /> : <Volume2 className="w-4 h-4" aria-hidden="true" />}
             </button>
             <input
               type="range"
+              aria-label="Volume"
               min="0"
               max="100"
               value={isMuted ? 0 : volume}
@@ -195,12 +201,13 @@ export const VideoStage: React.FC<VideoStageProps> = ({
             />
           </div>
 
-          <button
+          <button type="button"
             onClick={onOpenCodeEditor}
             title="Open Editor"
+            aria-label="Open code editor"
             className="text-slate-300 hover:text-white"
           >
-            <Maximize2 className="w-4 h-4" />
+            <Maximize2 className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       </div>

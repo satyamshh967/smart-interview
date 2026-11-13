@@ -89,14 +89,14 @@ export const MetricDonutCard: React.FC<MetricDonutCardProps> = ({
 
       {/* Bottom corner tools */}
       <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
-        <button
+        <button type="button"
           onClick={onExpand}
           title="Inspect Details"
           className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
         >
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
-        <button
+        <button type="button"
           onClick={onRefresh}
           title="Recalculate AI Score"
           className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
